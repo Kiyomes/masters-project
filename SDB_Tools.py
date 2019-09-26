@@ -160,6 +160,10 @@ class SDBTools:
         self.dlg.outButton.clicked.connect(self.select_output_folder)
         self.dlg.backButton.clicked.connect(self.Back)
         self.dlg.applyButton.clicked.connect(self.apply_ratio_pt1)
+        #self.dlg.mtlEdit.clear()
+        #self.dlg.shapeEdit.clear()
+        #self.dlg.depthEdit.clear()
+        #self.dlg.outEdit.clear()
 
         #Multiband Inputs and Buttons
         self.dlg.mtlButton2.clicked.connect(self.select_input_mtl_file2)
@@ -167,32 +171,46 @@ class SDBTools:
         self.dlg.outButton2.clicked.connect(self.select_output_folder2)
         self.dlg.backButton2.clicked.connect(self.Back2)
         self.dlg.applyButton2.clicked.connect(self.apply_multiband_pt1)
+        #self.dlg.mtlEdit2.clear()
+        #self.dlg.shapeEdit2.clear()
+        #self.dlg.depthEdit2.clear()
+        #self.dlg.outEdit2.clear()
 
-        #self.dlg.mtlEdit.clear()
-        #self.dlg.shapeEdit.clear()
-        #self.dlg.depthEdit.clear()
-        #self.dlg.outEdit.clear()
+        #Random Forest Inputs and Buttons
 
-        self.dlg.mtlEdit2.clear()
-        self.dlg.shapeEdit2.clear()
-        self.dlg.depthEdit2.clear()
-        self.dlg.outEdit2.clear()
+        self.dlg.mtlButton3.clicked.connect(self.select_input_mtl_file3)
+        self.dlg.shapeButton3.clicked.connect(self.select_input_shapefile3)
+        self.dlg.outButton3.clicked.connect(self.select_output_folder3)
+        self.dlg.applyButton3.clicked.connect(self.apply_randomforest_pt1)
+        self.dlg.backButton3.clicked.connect(self.Back3)
+        self.dlg.mtlEdit3.clear()
+        self.dlg.shapeEdit3.clear()
+        self.dlg.depthEdit3.clear()
+        self.dlg.outEdit3.clear()
 
         # Alternatively, add default text for line edits
 
-        self.dlg.mtlEdit.setText("D:/Kiyomi/Nunavut/Imagery/WorldView2/Arviat/056744514010_01_P001_MUL/"
-                                 "16JUL30172224-M2AS-056744514010_01_P001.xml")
-        self.dlg.shapeEdit.setText("D:/Kiyomi/Nunavut/Depths/AllDepths/Arviat_cal.shp")
-        self.dlg.outEdit.setText("D:/Kiyomi/Nunavut/SDBOutputs/WVTest")
-        self.dlg.depthEdit.setText("Depth")
+        #self.dlg.mtlEdit.setText("D:/Kiyomi/Nunavut/Imagery/WorldView2/Arviat/056744514010_01_P001_MUL/"
+                                 #"16JUL30172224-M2AS-056744514010_01_P001.xml")
+        #self.dlg.shapeEdit.setText("D:/Kiyomi/Nunavut/Depths/AllDepths/Arviat_cal.shp")
+        #self.dlg.outEdit.setText("D:/Kiyomi/Nunavut/SDBOutputs/WVTest")
+        #self.dlg.depthEdit.setText("Depth")
+
+        self.dlg.mtlEdit2.setText("D:/Kiyomi/Nunavut/Imagery/Landsat8/"
+                                  "CambridgeBay/LC08_L1TP_044012_20170801_20170811_01_T1_MTL.txt")
+        self.dlg.shapeEdit2.setText("D:/Kiyomi/Nunavut/CHSData/Depths/CB_lidar_L8.shp")
+        self.dlg.outEdit2.setText("D:/Kiyomi/Nunavut/SDBOutputs/Multiband/LandsatTest")
+        self.dlg.depthEdit2.setText("field_3")
 
 
         #Ratio Transform Page 2 Inputs
         self.dlg.thresholdEdit.clear()
-        #self.dlg.commandLinkButton.clicked.connect(self.show_plot)
         self.dlg.nextButton_2.clicked.connect(self.run_rtSDB)
         regrList = ["Ordinary Least Squares Regression", "Thiel-Sen Estimator", "RANSAC"]
         self.dlg.regrBox.addItems(regrList)
+
+        #Multiband inputs
+        self.dlg.thresholdEdit2.clear()
         self.dlg.nextButton_3.clicked.connect(self.run_multiSDB)
         self.dlg.regrBox_2.addItems(regrList)
 
@@ -229,9 +247,20 @@ class SDBTools:
         icon_path = ':/plugins/SDBTools/icon.png'
         self.add_action(
             icon_path,
-            text=self.tr(u'SDB Tools'),
+            text=self.tr(u'Ratio Transform Algorithm'),
             callback=self.run_rtSDB,
             parent=self.iface.mainWindow())
+        #self.add_action(
+            #icon_path,
+            #text=self.tr(u'Multiband Approach'),
+            #callback=self.run_multiSDB,
+            #parent=self.iface.mainWindow())
+        #self.add_action(
+            #icon_path,
+            #text=self.tr(u'Random Forest Regression'),
+            #callback=self.run_rfSDB,
+            #parent=self.iface.mainWindow())
+
 
 
     def unload(self):
@@ -256,9 +285,9 @@ class SDBTools:
             self.dlg.stackedWidget.setCurrentIndex(4)
             self.dlg.stackedWidget.setCurrentWidget(self.dlg.multiPage)
             self.dlg.multiPage.show()
-        '''if method == 2:
-            self.dlg.stackedWidget.setCurrentIndex()
-            self.dlg.stackedWidget.setCurrentWidget()'''
+        if method == 2:
+            self.dlg.stackedWidget.setCurrentIndex(7)
+            self.dlg.stackedWidget.setCurrentWidget(self.dlg.rfPage)
 
     def Cancel(self):
         self.dlg.close()
@@ -283,6 +312,16 @@ class SDBTools:
             fn_mtl = QFileDialog.getOpenFileName(self.dlg, "Select input metadata file", "", '*.xml')
             self.dlg.mtlEdit2.setText(fn_mtl)
 
+    def select_input_mtl_file3(self):
+        '''Select the input metadata file, try to make the program check which sensor was selected'''
+        sensor = self.dlg.sensorBox.currentIndex()
+        if sensor == 0:
+            fn_mtl = QFileDialog.getOpenFileName(self.dlg, "Select input metadata file", "", '*.txt')
+            self.dlg.mtlEdit3.setText(fn_mtl)
+        else:
+            fn_mtl = QFileDialog.getOpenFileName(self.dlg, "Select input metadata file", "", '*.xml')
+            self.dlg.mtlEdit3.setText(fn_mtl)
+
     def select_input_shapefile(self):
         '''Select the input shapefile with georeferenced acoustic depths'''
         fn_shape = QFileDialog.getOpenFileName(self.dlg, "Select input shapefile", self.dlg.mtlEdit.text(), '*.shp')
@@ -293,6 +332,11 @@ class SDBTools:
         fn_shape = QFileDialog.getOpenFileName(self.dlg, "Select input shapefile", self.dlg.mtlEdit2.text(), '*.shp')
         self.dlg.shapeEdit2.setText(fn_shape)
 
+    def select_input_shapefile3(self):
+        '''Select the input shapefile with georeferenced acoustic depths'''
+        fn_shape = QFileDialog.getOpenFileName(self.dlg, "Select input shapefile", self.dlg.mtlEdit3.text(), '*.shp')
+        self.dlg.shapeEdit3.setText(fn_shape)
+
     def select_output_folder(self):
         outFolder = QFileDialog.getExistingDirectory(self.dlg, "Select output folder", self.dlg.shapeEdit.text())
         self.dlg.outEdit.setText(outFolder)
@@ -300,6 +344,10 @@ class SDBTools:
     def select_output_folder2(self):
         outFolder = QFileDialog.getExistingDirectory(self.dlg, "Select output folder", self.dlg.shapeEdit2.text())
         self.dlg.outEdit2.setText(outFolder)
+
+    def select_output_folder3(self):
+        outFolder = QFileDialog.getExistingDirectory(self.dlg, "Select output folder", self.dlg.shapeEdit3.text())
+        self.dlg.outEdit3.setText(outFolder)
 
     def Back(self):
         self.dlg.stackedWidget.setCurrentIndex(0)
@@ -311,6 +359,12 @@ class SDBTools:
         self.dlg.stackedWidget.setCurrentIndex(0)
         self.dlg.stackedWidget.setCurrentWidget(self.dlg.menuPage)
         self.dlg.multiPage.hide()
+        self.dlg.menuPage.show()
+
+    def Back3(self):
+        self.dlg.stackedWidget.setCurrentIndex(0)
+        self.dlg.stackedWidget.setCurrentWidget(self.dlg.menuPage)
+        self.dlg.rfPage.hide()
         self.dlg.menuPage.show()
 
     def apply_ratio_pt1(self):
@@ -405,6 +459,16 @@ class SDBTools:
             self.dlg.multi_L8_dict = multi_L8_dict
             self.mbPage2(multi_L8_dict)
             self.dlg.multiPage.hide()
+        if sensor == 1:
+            multi_S2_dict = process.multiband_S2(mtl_filename, shp_filename, depthColName, out_folder)
+            self.dlg.multi_S2_dict = multi_S2_dict
+            self.mbPage2(multi_S2_dict)
+            self.dlg.multiPage.hide()
+        if sensor == 2:
+            multi_WV2_dict = process.multiband_WV2(mtl_filename, shp_filename, depthColName, out_folder)
+            self.dlg.multi_WV2_dict = multi_WV2_dict
+            self.mbPage2(multi_WV2_dict)
+            self.dlg.multiPage.hide()
 
     def mbPage2(self, dictionaries):
         self.dlg.stackedWidget.setCurrentIndex(5)
@@ -456,6 +520,38 @@ class SDBTools:
         self.dlg.mlrView.setScene(Scene)
         self.dlg.mlrView.fitInView(QtGui.QGraphicsPixmapItem(img))
         self.dlg.mlrView.show()
+        return dictionaries
+
+    #Random forest functions
+    def apply_randomforest_pt1(self):
+        mtl_filename = self.dlg.mtlEdit3.text()
+        shp_filename = self.dlg.shapeEdit3.text()
+        out_folder = self.dlg.outEdit3.text()
+        sensor = self.dlg.sensorBox.currentIndex()
+        depthColName = self.dlg.depthEdit3.text()
+
+        import SDB_randomforest_processes as process
+        if sensor == 0:
+            randomforest_L8_dict = process.randomForest_L8(mtl_filename, shp_filename, out_folder, depthColName)
+            self.dlg.randomforest_L8_dict = randomforest_L8_dict
+            self.rfPage2(randomforest_L8_dict)
+            self.dlg.rfPage.hide()
+        if sensor == 1:
+            randomforest_S2_dict = process.randomForest_S2(mtl_filename, shp_filename, out_folder, depthColName)
+            self.dlg.randomforest_S2_dict = randomforest_S2_dict
+            self.rfPage2(randomforest_S2_dict)
+            self.dlg.rfPage.hide()
+        if sensor == 2:
+            randomforest_WV2_dict = process.randomForest_WV2(mtl_filename, shp_filename, out_folder, depthColName)
+            self.dlg.randomforest_WV2_dict = randomforest_WV2_dict
+            self.rfPage2(randomforest_WV2_dict)
+            self.dlg.rfPage.hide()
+
+    def rfPage2(self, dictionaries):
+        self.dlg.stackedWidget.setCurrentIndex(8)
+        self.dlg.stackedWidget.setCurrentWidget(self.dlg.rfPage2)
+        self.dlg.rfPage2.show()
+        self.show_graphs(dictionaries)
         return dictionaries
 
     def Finish(self):
@@ -840,6 +936,315 @@ class SDBTools:
     def run_multiSDB(self):
         """Run method that performs all the real work"""
          #show the dialog
+        # Run the dialog event loop
+        # See if OK was pressed
+        sensor = self.dlg.sensorBox.currentIndex()
+        if sensor == 0:
+            out_folder = self.dlg.outEdit2.text()
+            regression = self.dlg.regrBox_2.currentIndex()
+            threshold = self.dlg.thresholdEdit2.text()
+            regr_ar_L8 = self.dlg.multi_L8_dict["regression_array"]
+            multi_L8 = self.dlg.multi_L8_dict["multiband_MLR"]
+            depthColName = self.dlg.depthEdit2.text()
+            shp_filename = self.dlg.shapeEdit2.text()
+            reprj = self.dlg.multi_L8_dict["rprj_shapefile"]
+
+            import SDB_multiband_processes as process
+            #  Create the new regression array
+            # startval = np.min(regr_ar_L8[:, 0])
+            startval = 0.0
+            endval = threshold
+            new_reg_ar = process.extract_array_landsat(regr_ar_L8, startval, endval)
+            # np.save(out_folder + "/new_reg_ar.np", new_reg_ar)
+            #  Test train split
+            train_test_dict = process.train_test(new_reg_ar, 0.66)
+            #  Regressions
+            #  Show new plot
+            if regression == 0:
+                ols = process.OLS_regression(train_test_dict)
+                #  Plot OLS Regression and display in the
+                plot_ols = process.plot_ols(ols, train_test_dict, out_folder)
+                self.dlg.plot_ols = plot_ols
+                plotname = plot_ols['plotname']
+                #  Create the Depths array
+                depths_ols = process.depth_array(ols['coefficient'], ols['intercept'], multi_L8, out_folder,
+                                                 ols['rtype'])
+                olsraster = depths_ols['depthfilename']
+
+                # Plot the acoustic depths v the derived depths
+                ad_depths_ols = process.all_depths_plot(depths_ols, depthColName, reprj, threshold, out_folder)
+                self.dlg.ad_depths_ols = ad_depths_ols
+                ols_adepths_v_ddepths = ad_depths_ols['depths_data']
+                filename = ad_depths_ols['filename']
+                ols_dict = {"plotname": plotname, "plot_regression": plot_ols, "filename": filename,
+                            "depths_data": ols_adepths_v_ddepths}
+                self.mbPage3(ols_dict)
+                self.show_depthgraphs_2(ols_adepths_v_ddepths)
+                depths_ols = None
+                process.StringtoRaster(olsraster)
+
+            #  Theil - Sen Regression
+            if regression == 1:
+                theilsen = process.theil_sen_regression(train_test_dict)
+                #  Plot
+                plot_theil = process.plot_theilsen(theilsen, train_test_dict, out_folder)
+                self.dlg.plot_theil = plot_theil
+                plotname = plot_theil['plotname']
+                # Create the Depths array
+                depths_theilsen = process.depth_array(theilsen['coefficient'], theilsen['intercept'], multi_L8,
+                                                      out_folder, theilsen['rtype'])
+                self.dlg.depths_theilsen = depths_theilsen
+                thsraster = depths_theilsen['depthfilename']
+                # self.show_newlngraphs(plot_theil)
+
+                # Plot the acoustic depths v the derived depths
+                ad_depths_theil = process.all_depths_plot(depths_theilsen, depthColName, reprj, threshold,
+                                                          out_folder)
+                self.dlg.ad_depths_theil = ad_depths_theil
+                theil_adepths_v_ddepths = ad_depths_theil['depths_data']
+                filename = ad_depths_theil['filename']
+                theil_dict = {"plotname": plotname, "plot_regression": plot_theil, "filename": filename,
+                              "depths_data": theil_adepths_v_ddepths}
+                self.show_depthgraphs_2(theil_adepths_v_ddepths)
+                self.mbPage3(theil_dict)
+                depths_theilsen = None
+                theil_dict = None
+                theil_adepths_v_ddepths = None
+                self.dlg.ad_depths_theil = None
+                process.StringtoRaster(thsraster)
+
+            #  RANSAC Regression
+            if regression == 2:
+                ransac = process.ransac_regression(train_test_dict)
+                #  Plot ransac Regression and display in the
+                plot_ransac = process.plot_RANSAC(ransac, train_test_dict, out_folder)
+                self.dlg.plot_ransac = plot_ransac
+                plotname = plot_ransac['plotname']
+                #  Create the Depths array
+                depths_ransac = process.depth_array(ransac['coefficient'], ransac['intercept'], multi_L8,
+                                                    out_folder,
+                                                    ransac['rtype'])
+                ransacraster = depths_ransac['depthfilename']
+                # process.StringtoRaster(ransacraster)
+
+                # Plot the acoustic depths v the derived depths
+                ad_depths_ransac = process.all_depths_plot(depths_ransac, depthColName, reprj, threshold,
+                                                           out_folder)
+                self.dlg.ad_depths_ransac = ad_depths_ransac
+                ransac_adepths_v_ddepths = ad_depths_ransac['depths_data']
+                filename = ad_depths_ransac['filename']
+                ransac_dict = {"plotname": plotname, "plot_regression": plot_ransac, "filename": filename,
+                               "depths_data": ransac_adepths_v_ddepths}
+                self.mbPage3(ransac_dict)
+                self.show_depthgraphs_2(ransac_adepths_v_ddepths)
+                depths_ransac = None
+                process.StringtoRaster(ransacraster)
+
+        if sensor == 1:
+            out_folder = self.dlg.outEdit2.text()
+            regression = self.dlg.regrBox_2.currentIndex()
+            threshold = self.dlg.thresholdEdit.text()
+            regr_ar_S2 = self.dlg.multi_S2_dict["regression_array"]
+            multi_S2 = self.dlg.multi_S2_dict["multiband_MLR"]
+            depthColName = self.dlg.depthEdit2.text()
+            shp_filename = self.dlg.shapeEdit2.text()
+            reprj = self.dlg.multi_S2_dict["rprj_shapefile"]
+
+            import SDB_multiband_processes as process
+            #  Create the new regression array
+            # startval = np.min(regr_ar_S2[:, 0])
+            startval = 0.0
+            endval = threshold
+            new_reg_ar = process.extract_array_landsat(regr_ar_S2, startval, endval)
+            # np.save(out_folder + "/new_reg_ar.np", new_reg_ar)
+            #  Test train split
+            train_test_dict = process.train_test(new_reg_ar, 0.66)
+            #  Regressions
+            #  Show new plot
+            if regression == 0:
+                ols = process.OLS_regression(train_test_dict)
+                #  Plot OLS Regression and display in the
+                plot_ols = process.plot_ols(ols, train_test_dict, out_folder)
+                self.dlg.plot_ols = plot_ols
+                plotname = plot_ols['plotname']
+                #  Create the Depths array
+                depths_ols = process.depth_array(ols['coefficient'], ols['intercept'], multi_S2, out_folder,
+                                                 ols['rtype'])
+                olsraster = depths_ols['depthfilename']
+
+                # Plot the acoustic depths v the derived depths
+                ad_depths_ols = process.all_depths_plot(depths_ols, depthColName, reprj, threshold, out_folder)
+                self.dlg.ad_depths_ols = ad_depths_ols
+                ols_adepths_v_ddepths = ad_depths_ols['depths_data']
+                filename = ad_depths_ols['filename']
+                ols_dict = {"plotname": plotname, "plot_regression": plot_ols, "filename": filename,
+                            "depths_data": ols_adepths_v_ddepths}
+                self.mbPage3(ols_dict)
+                self.show_depthgraphs_2(ols_adepths_v_ddepths)
+                depths_ols = None
+                process.StringtoRaster(olsraster)
+
+            #  Theil - Sen Regression
+            if regression == 1:
+                theilsen = process.theil_sen_regression(train_test_dict)
+                #  Plot
+                plot_theil = process.plot_theilsen(theilsen, train_test_dict, out_folder)
+                self.dlg.plot_theil = plot_theil
+                plotname = plot_theil['plotname']
+                # Create the Depths array
+                depths_theilsen = process.depth_array(theilsen['coefficient'], theilsen['intercept'], multi_S2,
+                                                      out_folder, theilsen['rtype'])
+                self.dlg.depths_theilsen = depths_theilsen
+                thsraster = depths_theilsen['depthfilename']
+                # self.show_newlngraphs(plot_theil)
+
+                # Plot the acoustic depths v the derived depths
+                ad_depths_theil = process.all_depths_plot(depths_theilsen, depthColName, reprj, threshold,
+                                                          out_folder)
+                self.dlg.ad_depths_theil = ad_depths_theil
+                theil_adepths_v_ddepths = ad_depths_theil['depths_data']
+                filename = ad_depths_theil['filename']
+                theil_dict = {"plotname": plotname, "plot_regression": plot_theil, "filename": filename,
+                              "depths_data": theil_adepths_v_ddepths}
+                self.show_depthgraphs_2(theil_adepths_v_ddepths)
+                self.mbPage3(theil_dict)
+                depths_theilsen = None
+                theil_dict = None
+                theil_adepths_v_ddepths = None
+                self.dlg.ad_depths_theil = None
+                process.StringtoRaster(thsraster)
+
+            #  RANSAC Regression
+            if regression == 2:
+                ransac = process.ransac_regression(train_test_dict)
+                #  Plot ransac Regression and display in the
+                plot_ransac = process.plot_RANSAC(ransac, train_test_dict, out_folder)
+                self.dlg.plot_ransac = plot_ransac
+                plotname = plot_ransac['plotname']
+                #  Create the Depths array
+                depths_ransac = process.depth_array(ransac['coefficient'], ransac['intercept'], multi_S2,
+                                                    out_folder, ransac['rtype'])
+                ransacraster = depths_ransac['depthfilename']
+                # process.StringtoRaster(ransacraster)
+
+                # Plot the acoustic depths v the derived depths
+                ad_depths_ransac = process.all_depths_plot(depths_ransac, depthColName, reprj, threshold,
+                                                           out_folder)
+                self.dlg.ad_depths_ransac = ad_depths_ransac
+                ransac_adepths_v_ddepths = ad_depths_ransac['depths_data']
+                filename = ad_depths_ransac['filename']
+                ransac_dict = {"plotname": plotname, "plot_regression": plot_ransac, "filename": filename,
+                               "depths_data": ransac_adepths_v_ddepths}
+                self.mbPage3(ransac_dict)
+                self.show_depthgraphs_2(ransac_adepths_v_ddepths)
+                depths_ransac = None
+                process.StringtoRaster(ransacraster)
+
+        if sensor == 2:
+            out_folder = self.dlg.outEdit2.text()
+            regression = self.dlg.regrBox_2.currentIndex()
+            threshold = self.dlg.thresholdEdit.text()
+            regr_ar_WV2 = self.dlg.multi_WV2_dict["regression_array"]
+            multi_WV2 = self.dlg.multi_WV2_dict["multiband_MLR"]
+            depthColName = self.dlg.depthEdit2.text()
+            shp_filename = self.dlg.shapeEdit2.text()
+            reprj = self.dlg.multi_WV2_dict["rprj_shapefile"]
+
+            import SDB_multiband_processes as process
+            #  Create the new regression array
+            # startval = np.min(regr_ar_WV2[:, 0])
+            startval = 0.0
+            endval = threshold
+            new_reg_ar = process.extract_array_landsat(regr_ar_WV2, startval, endval)
+            # np.save(out_folder + "/new_reg_ar.np", new_reg_ar)
+            #  Test train split
+            train_test_dict = process.train_test(new_reg_ar, 0.66)
+            #  Regressions
+            #  Show new plot
+            if regression == 0:
+                ols = process.OLS_regression(train_test_dict)
+                #  Plot OLS Regression and display in the
+                plot_ols = process.plot_ols(ols, train_test_dict, out_folder)
+                self.dlg.plot_ols = plot_ols
+                plotname = plot_ols['plotname']
+                #  Create the Depths array
+                depths_ols = process.depth_array(ols['coefficient'], ols['intercept'], multi_WV2, out_folder,
+                                                 ols['rtype'])
+                olsraster = depths_ols['depthfilename']
+
+                # Plot the acoustic depths v the derived depths
+                ad_depths_ols = process.all_depths_plot(depths_ols, depthColName, reprj, threshold, out_folder)
+                self.dlg.ad_depths_ols = ad_depths_ols
+                ols_adepths_v_ddepths = ad_depths_ols['depths_data']
+                filename = ad_depths_ols['filename']
+                ols_dict = {"plotname": plotname, "plot_regression": plot_ols, "filename": filename,
+                            "depths_data": ols_adepths_v_ddepths}
+                self.mbPage3(ols_dict)
+                self.show_depthgraphs_2(ols_adepths_v_ddepths)
+                depths_ols = None
+                process.StringtoRaster(olsraster)
+
+            #  Theil - Sen Regression
+            if regression == 1:
+                theilsen = process.theil_sen_regression(train_test_dict)
+                #  Plot
+                plot_theil = process.plot_theilsen(theilsen, train_test_dict, out_folder)
+                self.dlg.plot_theil = plot_theil
+                plotname = plot_theil['plotname']
+                # Create the Depths array
+                depths_theilsen = process.depth_array(theilsen['coefficient'], theilsen['intercept'], multi_WV2,
+                                                      out_folder, theilsen['rtype'])
+                self.dlg.depths_theilsen = depths_theilsen
+                thsraster = depths_theilsen['depthfilename']
+                # self.show_newlngraphs(plot_theil)
+
+                # Plot the acoustic depths v the derived depths
+                ad_depths_theil = process.all_depths_plot(depths_theilsen, depthColName, reprj, threshold,
+                                                          out_folder)
+                self.dlg.ad_depths_theil = ad_depths_theil
+                theil_adepths_v_ddepths = ad_depths_theil['depths_data']
+                filename = ad_depths_theil['filename']
+                theil_dict = {"plotname": plotname, "plot_regression": plot_theil, "filename": filename,
+                              "depths_data": theil_adepths_v_ddepths}
+                self.show_depthgraphs_2(theil_adepths_v_ddepths)
+                self.mbPage3(theil_dict)
+                depths_theilsen = None
+                theil_dict = None
+                theil_adepths_v_ddepths = None
+                self.dlg.ad_depths_theil = None
+                process.StringtoRaster(thsraster)
+
+            #  RANSAC Regression
+            if regression == 2:
+                ransac = process.ransac_regression(train_test_dict)
+                #  Plot ransac Regression and display in the
+                plot_ransac = process.plot_RANSAC(ransac, train_test_dict, out_folder)
+                self.dlg.plot_ransac = plot_ransac
+                plotname = plot_ransac['plotname']
+                #  Create the Depths array
+                depths_ransac = process.depth_array(ransac['coefficient'], ransac['intercept'], multi_WV2,
+                                                    out_folder,
+                                                    ransac['rtype'])
+                ransacraster = depths_ransac['depthfilename']
+                # process.StringtoRaster(ransacraster)
+
+                # Plot the acoustic depths v the derived depths
+                ad_depths_ransac = process.all_depths_plot(depths_ransac, depthColName, reprj, threshold,
+                                                           out_folder)
+                self.dlg.ad_depths_ransac = ad_depths_ransac
+                ransac_adepths_v_ddepths = ad_depths_ransac['depths_data']
+                filename = ad_depths_ransac['filename']
+                ransac_dict = {"plotname": plotname, "plot_regression": plot_ransac, "filename": filename,
+                               "depths_data": ransac_adepths_v_ddepths}
+                self.mbPage3(ransac_dict)
+                self.show_depthgraphs_2(ransac_adepths_v_ddepths)
+                depths_ransac = None
+                process.StringtoRaster(ransacraster)
+
+
+    '''def run_multiSDB(self):
+        """Run method that performs all the real work"""
+         #show the dialog
         self.dlg.show()
         # Run the dialog event loop
         result = self.dlg.exec_()
@@ -849,9 +1254,9 @@ class SDBTools:
             if result:
                 out_folder = self.dlg.outEdit2.text()
                 regression = self.dlg.regrBox_2.currentIndex()
-                threshold = self.dlg.thresholdEdit.text()
+                threshold = self.dlg.thresholdEdit2.text()
                 regr_ar_L8 = self.dlg.multi_L8_dict["regression_array"]
-                multi_L8 = self.dlg.multi_L8_dict["multiband"]
+                multi_L8 = self.dlg.multi_L8_dict["multiband_MLR"]
                 depthColName = self.dlg.depthEdit2.text()
                 shp_filename = self.dlg.shapeEdit2.text()
                 reprj = self.dlg.multi_L8_dict["rprj_shapefile"]
@@ -946,4 +1351,208 @@ class SDBTools:
                     self.show_depthgraphs_2(ransac_adepths_v_ddepths)
                     depths_ransac = None
                     process.StringtoRaster(ransacraster)
-            pass
+
+        if sensor == 1:
+            if result:
+                out_folder = self.dlg.outEdit2.text()
+                regression = self.dlg.regrBox_2.currentIndex()
+                threshold = self.dlg.thresholdEdit.text()
+                regr_ar_S2 = self.dlg.multi_S2_dict["regression_array"]
+                multi_S2 = self.dlg.multi_S2_dict["multiband_MLR"]
+                depthColName = self.dlg.depthEdit2.text()
+                shp_filename = self.dlg.shapeEdit2.text()
+                reprj = self.dlg.multi_S2_dict["rprj_shapefile"]
+
+                import SDB_multiband_processes as process
+                #  Create the new regression array
+                # startval = np.min(regr_ar_S2[:, 0])
+                startval = 0.0
+                endval = threshold
+                new_reg_ar = process.extract_array_landsat(regr_ar_S2, startval, endval)
+                # np.save(out_folder + "/new_reg_ar.np", new_reg_ar)
+                #  Test train split
+                train_test_dict = process.train_test(new_reg_ar, 0.66)
+                #  Regressions
+                #  Show new plot
+                if regression == 0:
+                    ols = process.OLS_regression(train_test_dict)
+                    #  Plot OLS Regression and display in the
+                    plot_ols = process.plot_ols(ols, train_test_dict, out_folder)
+                    self.dlg.plot_ols = plot_ols
+                    plotname = plot_ols['plotname']
+                    #  Create the Depths array
+                    depths_ols = process.depth_array(ols['coefficient'], ols['intercept'], multi_S2, out_folder,
+                                                     ols['rtype'])
+                    olsraster = depths_ols['depthfilename']
+
+                    # Plot the acoustic depths v the derived depths
+                    ad_depths_ols = process.all_depths_plot(depths_ols, depthColName, reprj, threshold, out_folder)
+                    self.dlg.ad_depths_ols = ad_depths_ols
+                    ols_adepths_v_ddepths = ad_depths_ols['depths_data']
+                    filename = ad_depths_ols['filename']
+                    ols_dict = {"plotname": plotname, "plot_regression": plot_ols, "filename": filename,
+                                "depths_data": ols_adepths_v_ddepths}
+                    self.mbPage3(ols_dict)
+                    self.show_depthgraphs_2(ols_adepths_v_ddepths)
+                    depths_ols = None
+                    process.StringtoRaster(olsraster)
+
+                #  Theil - Sen Regression
+                if regression == 1:
+                    theilsen = process.theil_sen_regression(train_test_dict)
+                    #  Plot
+                    plot_theil = process.plot_theilsen(theilsen, train_test_dict, out_folder)
+                    self.dlg.plot_theil = plot_theil
+                    plotname = plot_theil['plotname']
+                    # Create the Depths array
+                    depths_theilsen = process.depth_array(theilsen['coefficient'], theilsen['intercept'], multi_S2,
+                                                          out_folder, theilsen['rtype'])
+                    self.dlg.depths_theilsen = depths_theilsen
+                    thsraster = depths_theilsen['depthfilename']
+                    # self.show_newlngraphs(plot_theil)
+
+                    # Plot the acoustic depths v the derived depths
+                    ad_depths_theil = process.all_depths_plot(depths_theilsen, depthColName, reprj, threshold,
+                                                              out_folder)
+                    self.dlg.ad_depths_theil = ad_depths_theil
+                    theil_adepths_v_ddepths = ad_depths_theil['depths_data']
+                    filename = ad_depths_theil['filename']
+                    theil_dict = {"plotname": plotname, "plot_regression": plot_theil, "filename": filename,
+                                  "depths_data": theil_adepths_v_ddepths}
+                    self.show_depthgraphs_2(theil_adepths_v_ddepths)
+                    self.mbPage3(theil_dict)
+                    depths_theilsen = None
+                    theil_dict = None
+                    theil_adepths_v_ddepths = None
+                    self.dlg.ad_depths_theil = None
+                    process.StringtoRaster(thsraster)
+
+                #  RANSAC Regression
+                if regression == 2:
+                    ransac = process.ransac_regression(train_test_dict)
+                    #  Plot ransac Regression and display in the
+                    plot_ransac = process.plot_RANSAC(ransac, train_test_dict, out_folder)
+                    self.dlg.plot_ransac = plot_ransac
+                    plotname = plot_ransac['plotname']
+                    #  Create the Depths array
+                    depths_ransac = process.depth_array(ransac['coefficient'], ransac['intercept'], multi_S2,
+                                                        out_folder, ransac['rtype'])
+                    ransacraster = depths_ransac['depthfilename']
+                    # process.StringtoRaster(ransacraster)
+
+                    # Plot the acoustic depths v the derived depths
+                    ad_depths_ransac = process.all_depths_plot(depths_ransac, depthColName, reprj, threshold,
+                                                               out_folder)
+                    self.dlg.ad_depths_ransac = ad_depths_ransac
+                    ransac_adepths_v_ddepths = ad_depths_ransac['depths_data']
+                    filename = ad_depths_ransac['filename']
+                    ransac_dict = {"plotname": plotname, "plot_regression": plot_ransac, "filename": filename,
+                                   "depths_data": ransac_adepths_v_ddepths}
+                    self.mbPage3(ransac_dict)
+                    self.show_depthgraphs_2(ransac_adepths_v_ddepths)
+                    depths_ransac = None
+                    process.StringtoRaster(ransacraster)
+
+        if sensor == 2:
+            if result:
+                out_folder = self.dlg.outEdit2.text()
+                regression = self.dlg.regrBox_2.currentIndex()
+                threshold = self.dlg.thresholdEdit.text()
+                regr_ar_WV2 = self.dlg.multi_WV2_dict["regression_array"]
+                multi_WV2 = self.dlg.multi_WV2_dict["multiband_MLR"]
+                depthColName = self.dlg.depthEdit2.text()
+                shp_filename = self.dlg.shapeEdit2.text()
+                reprj = self.dlg.multi_WV2_dict["rprj_shapefile"]
+
+                import SDB_multiband_processes as process
+                #  Create the new regression array
+                # startval = np.min(regr_ar_WV2[:, 0])
+                startval = 0.0
+                endval = threshold
+                new_reg_ar = process.extract_array_landsat(regr_ar_WV2, startval, endval)
+                # np.save(out_folder + "/new_reg_ar.np", new_reg_ar)
+                #  Test train split
+                train_test_dict = process.train_test(new_reg_ar, 0.66)
+                #  Regressions
+                #  Show new plot
+                if regression == 0:
+                    ols = process.OLS_regression(train_test_dict)
+                    #  Plot OLS Regression and display in the
+                    plot_ols = process.plot_ols(ols, train_test_dict, out_folder)
+                    self.dlg.plot_ols = plot_ols
+                    plotname = plot_ols['plotname']
+                    #  Create the Depths array
+                    depths_ols = process.depth_array(ols['coefficient'], ols['intercept'], multi_WV2, out_folder,
+                                                     ols['rtype'])
+                    olsraster = depths_ols['depthfilename']
+
+                    # Plot the acoustic depths v the derived depths
+                    ad_depths_ols = process.all_depths_plot(depths_ols, depthColName, reprj, threshold, out_folder)
+                    self.dlg.ad_depths_ols = ad_depths_ols
+                    ols_adepths_v_ddepths = ad_depths_ols['depths_data']
+                    filename = ad_depths_ols['filename']
+                    ols_dict = {"plotname": plotname, "plot_regression": plot_ols, "filename": filename,
+                                "depths_data": ols_adepths_v_ddepths}
+                    self.mbPage3(ols_dict)
+                    self.show_depthgraphs_2(ols_adepths_v_ddepths)
+                    depths_ols = None
+                    process.StringtoRaster(olsraster)
+
+                #  Theil - Sen Regression
+                if regression == 1:
+                    theilsen = process.theil_sen_regression(train_test_dict)
+                    #  Plot
+                    plot_theil = process.plot_theilsen(theilsen, train_test_dict, out_folder)
+                    self.dlg.plot_theil = plot_theil
+                    plotname = plot_theil['plotname']
+                    # Create the Depths array
+                    depths_theilsen = process.depth_array(theilsen['coefficient'], theilsen['intercept'], multi_WV2,
+                                                          out_folder, theilsen['rtype'])
+                    self.dlg.depths_theilsen = depths_theilsen
+                    thsraster = depths_theilsen['depthfilename']
+                    # self.show_newlngraphs(plot_theil)
+
+                    # Plot the acoustic depths v the derived depths
+                    ad_depths_theil = process.all_depths_plot(depths_theilsen, depthColName, reprj, threshold,
+                                                              out_folder)
+                    self.dlg.ad_depths_theil = ad_depths_theil
+                    theil_adepths_v_ddepths = ad_depths_theil['depths_data']
+                    filename = ad_depths_theil['filename']
+                    theil_dict = {"plotname": plotname, "plot_regression": plot_theil, "filename": filename,
+                                  "depths_data": theil_adepths_v_ddepths}
+                    self.show_depthgraphs_2(theil_adepths_v_ddepths)
+                    self.mbPage3(theil_dict)
+                    depths_theilsen = None
+                    theil_dict = None
+                    theil_adepths_v_ddepths = None
+                    self.dlg.ad_depths_theil = None
+                    process.StringtoRaster(thsraster)
+
+                #  RANSAC Regression
+                if regression == 2:
+                    ransac = process.ransac_regression(train_test_dict)
+                    #  Plot ransac Regression and display in the
+                    plot_ransac = process.plot_RANSAC(ransac, train_test_dict, out_folder)
+                    self.dlg.plot_ransac = plot_ransac
+                    plotname = plot_ransac['plotname']
+                    #  Create the Depths array
+                    depths_ransac = process.depth_array(ransac['coefficient'], ransac['intercept'], multi_WV2,
+                                                        out_folder,
+                                                        ransac['rtype'])
+                    ransacraster = depths_ransac['depthfilename']
+                    # process.StringtoRaster(ransacraster)
+
+                    # Plot the acoustic depths v the derived depths
+                    ad_depths_ransac = process.all_depths_plot(depths_ransac, depthColName, reprj, threshold,
+                                                               out_folder)
+                    self.dlg.ad_depths_ransac = ad_depths_ransac
+                    ransac_adepths_v_ddepths = ad_depths_ransac['depths_data']
+                    filename = ad_depths_ransac['filename']
+                    ransac_dict = {"plotname": plotname, "plot_regression": plot_ransac, "filename": filename,
+                                   "depths_data": ransac_adepths_v_ddepths}
+                    self.mbPage3(ransac_dict)
+                    self.show_depthgraphs_2(ransac_adepths_v_ddepths)
+                    depths_ransac = None
+                    process.StringtoRaster(ransacraster)
+
+            pass'''

@@ -13,6 +13,7 @@ import matplotlib.pyplot as plt
 import math
 import xml.etree.ElementTree as ET
 import scipy.stats
+import scipy.ndimage
 
 def get_cmap(n, name='hsv'):
     '''Returns a function that maps each index in 0, 1, ..., n-1 to a distinct
@@ -185,134 +186,145 @@ def writeGeotiff_Byte(fname, data, geo_transform, projection, compress):
     dataset = None  # Close the file
     return 0
 
-def read_mtl_WV2(mtl_filename):
+def read_mtl_landsat(mtl_filename, bandnumber):
+    '''Goes through the  landsat metadata file and looks for the specified bandname, reflectance multiplier and reflectance add
+    constants, and returns all them along with the bands file name.'''
+    txt_f = open(mtl_filename, "r")
+    for line in txt_f:
+        splitline = line.split()
+        firststring = splitline[0]
+        if firststring == "FILE_NAME_BAND_" + str(bandnumber):
+            BAND = str(splitline[2]).strip('"')
+        if firststring == "REFLECTANCE_MULT_BAND_" + str(bandnumber):
+            RMULT = float(splitline[2])
+        if firststring == "REFLECTANCE_ADD_BAND_" + str(bandnumber):
+            RADD = float(splitline[2])
+    filename = os.path.dirname(mtl_filename) + "/" + BAND
+    #  Dictionary
+    read_dict_L8 = {"filename": filename, "bandname": BAND, "rmult": RMULT, "radd": RADD}
+    return read_dict_L8
+
+def read_mtl_S2(mtl_filename):
+    '''Reads the Sentinel 2 landsat metadata file and looks for the specified band number, and finds the DN
+    for TOA Reflectance'''
     tree = ET.parse(mtl_filename)
     root = tree.getroot()
-
     metadataPath = mtl_filename.split("/")[:-1]  # Remove filename from metadataFile, to get path.
     metadataPath = "/".join(metadataPath) + "/"
+
+    # Get what is in the main file:
+    # List of image filepaths
+    # ESUN
+    # List of solar irradiances
+    # Year, month, day, jday, hr
+    # SceneCentre
     imagefiles = []
+    bandname = []
+    ESUN = []
 
     for child in root:
-        if child.tag == "IMD":
+        if child.tag.split('}')[1] == "General_Info":
             root2 = child
             for child2 in root2:
-                if child2.tag == "BAND_C":
+                if child2.tag == "Product_Info":
                     root3 = child2
                     for child3 in root3:
-                        if child3.tag == "ABSCALFACTOR":
-                            abscal_1 = float(child3.text)
-                        if child3.tag == "EFFECTIVEBANDWIDTH":
-                            effective_bandwidth_1 = float(child3.text)
-                if child2.tag == "BAND_B":
-                    root3 = child2
-                    for child3 in root3:
-                        if child3.tag == "ABSCALFACTOR":
-                            abscal_2 = float(child3.text)
-                        if child3.tag == "EFFECTIVEBANDWIDTH":
-                            effective_bandwidth_2 = float(child3.text)
-                if child2.tag == "BAND_G":
-                    root3 = child2
-                    for child3 in root3:
-                        if child3.tag == "ABSCALFACTOR":
-                            abscal_3 = float(child3.text)
-                        if child3.tag == "EFFECTIVEBANDWIDTH":
-                            effective_bandwidth_3 = float(child3.text)
-                if child2.tag == "BAND_Y":
-                    root3 = child2
-                    for child3 in root3:
-                        if child3.tag == "ABSCALFACTOR":
-                            abscal_4 = float(child3.text)
-                        if child3.tag == "EFFECTIVEBANDWIDTH":
-                            effective_bandwidth_4 = float(child3.text)
-                if child2.tag == "BAND_R":
-                    root3 = child2
-                    for child3 in root3:
-                        if child3.tag == "ABSCALFACTOR":
-                            abscal_5 = float(child3.text)
-                        if child3.tag == "EFFECTIVEBANDWIDTH":
-                            effective_bandwidth_5 = float(child3.text)
-                if child2.tag == "BAND_RE":
-                    root3 = child2
-                    for child3 in root3:
-                        if child3.tag == "ABSCALFACTOR":
-                            abscal_6 = float(child3.text)
-                        if child3.tag == "EFFECTIVEBANDWIDTH":
-                            effective_bandwidth_6 = float(child3.text)
-                if child2.tag == "BAND_N":
-                    root3 = child2
-                    for child3 in root3:
-                        if child3.tag == "ABSCALFACTOR":
-                            abscal_7 = float(child3.text)
-                        if child3.tag == "EFFECTIVEBANDWIDTH":
-                            effective_bandwidth_7 = float(child3.text)
-                if child2.tag == "BAND_N2":
-                    root3 = child2
-                    for child3 in root3:
-                        if child3.tag == "ABSCALFACTOR":
-                            abscal_8 = float(child3.text)
-                        if child3.tag == "EFFECTIVEBANDWIDTH":
-                            effective_bandwidth_8 = float(child3.text)
-                if child2.tag == "IMAGE":
-                    root3 = child2
-                    for child3 in root3:
-                        if child3.tag == "FIRSTLINETIME":
-                            time = child3.text
-                            year = int(time[0:4])
-                            month = int(time[5:7])
-                            day = int(time[8:10])
-                            hours = int(time[11:13])
-                            minutes = int(time[14:16])
-                            seconds = int(time[17:19])
+                        if child3.tag == "PRODUCT_START_TIME":
+                            year, month, day, jday = splitDate(child3.text[0:10])
+                            hours = int(child3.text[11:13])
+                            minutes = int(child3.text[14:16])
+                            seconds = int(child3.text[17:19])
                             hr = float(hours) + float(minutes) / 60 + float(seconds) / 3600
-                            jday = getJday(year, month, day)
-                        if child3.tag == "MEANSUNEL":
-                            sza = 90 - float(child3.text)
-                        if child3.tag == "MEANSUNAZ":
-                            saa = float(child3.text)
-                        if child3.tag == "MEANSATAZ":
-                            vaa = float(child3.text)
-                        if child3.tag == "MEANOFFNADIRVIEWANGLE":
-                            vza = float(child3.text)
-
-        if child.tag == "TIL":
-            root2 = child
-            for child2 in root2:
-                if child2.tag == "TILE":
+                        if child3.tag == "Product_Organisation":
+                            root4 = child3
+                            for child4 in root4:
+                                if child4.tag == "Granule_List":
+                                    root5 = child4
+                                    for child5 in root5:
+                                        if child5.tag == "Granule":
+                                            root6 = child5
+                                            for child6 in root6:
+                                                if child6.tag == "IMAGE_FILE":
+                                                    imagefiles.append(child6.text)
+                                            imagefiles = sorted(imagefiles)
+                if child2.tag == "Product_Image_Characteristics":
                     root3 = child2
                     for child3 in root3:
-                        if child3.tag == "FILENAME":
-                            imagefiles.append(os.path.dirname(mtl_filename) + "/" + child3.text)
-                        if child3.tag == "ULLON":
-                            ulx = float(child3.text)
-                        if child3.tag == "ULLAT":
-                            uly = float(child3.text)
-                        if child3.tag == "URLON":
-                            urx = float(child3.text)
-                        if child3.tag == "URLAT":
-                            ury = float(child3.text)
-                        if child3.tag == "LRLON":
-                            lrx = float(child3.text)
-                        if child3.tag == "LRLAT":
-                            lry = float(child3.text)
-                        if child3.tag == "LLLON":
-                            llx = float(child3.text)
-                        if child3.tag == "LLLAT":
-                            lly = float(child3.text)
+                        if child3.tag == "QUANTIFICATION_VALUE":
+                            quantification = child3.text
+                        if child3.tag == "Reflectance_Conversion":
+                            root4 = child3
+                            for child4 in root4:
+                                if child4.tag == "U":
+                                    U = float(child4.text)
+                                if child4.tag == "Solar_Irradiance_List":
+                                    root5 = child4
+                                    for child5 in root5:
+                                        ESUN.append(float(child5.text))
 
-    abscals = [abscal_1, abscal_2, abscal_3, abscal_4, abscal_5, abscal_6, abscal_7, abscal_8]
-    effective_bandwidths = [effective_bandwidth_1, effective_bandwidth_2, effective_bandwidth_3, effective_bandwidth_4,
-                            effective_bandwidth_5, effective_bandwidth_6, effective_bandwidth_7, effective_bandwidth_8]
-    calibration = [abscal_1 / effective_bandwidth_1, abscal_2 / effective_bandwidth_2, abscal_3 / effective_bandwidth_3,
-                   abscal_4 / effective_bandwidth_4, abscal_5 / effective_bandwidth_5, abscal_6 / effective_bandwidth_6,
-                   abscal_7 / effective_bandwidth_7, abscal_8 / effective_bandwidth_8]
-    sceneCentre = [np.mean([uly, ury, lry, lly]), np.mean([ulx, urx, lrx, llx])]
-    metadata = [imagefiles, calibration, saa, sza, vaa, vza, year, month, day, jday, hr, sceneCentre]
+        if child.tag.split('}')[1] == "Geometric_Info":
+            root2 = child
+            for child2 in root2:
+                if child2.tag == "Product_Footprint":
+                    root3 = child2
+                    for child3 in root3:
+                        if child3.tag == "Product_Footprint":
+                            root4 = child3
+                            for child4 in root4:
+                                if child4.tag == "Global_Footprint":
+                                    root5 = child4
+                                    for child5 in root5:
+                                        if child5.tag == "EXT_POS_LIST":
+                                            coordinates = child5.text.rstrip().split(" ")
+                                            latitudes = []
+                                            longitudes = []
+                                            for i in range(len(coordinates)):
+                                                if i % 2 == 0:
+                                                    latitudes.append(float(coordinates[i]))
+                                                else:
+                                                    longitudes.append(float(coordinates[i]))
+                                            sceneCentre = [np.mean(np.asarray(latitudes)),
+                                                           np.mean(np.asarray(longitudes))]
+
+    # Then get path to xml file for the granule
+    additionalPath = "/".join(imagefiles[0].split("/")[0:2])  # Get the additional path, and
+    granulePath = metadataPath + additionalPath  # add it
+    for file in os.listdir(granulePath):
+        if file.endswith(".xml"):
+            granuleMetadataFile = granulePath + "/" + file
+
+    # Get sza and saa
+    tree = ET.parse(granuleMetadataFile)
+    root = tree.getroot()
+
+    for child in root:
+        if child.tag.split('}')[1] == "Geometric_Info":
+            root2 = child
+            for child2 in root2:
+                if child2.tag == "Tile_Angles":
+                    root3 = child2
+                    for child3 in root3:
+                        if child3.tag == "Mean_Sun_Angle":
+                            root4 = child3
+                            for child4 in root4:
+                                if child4.tag == "ZENITH_ANGLE":
+                                    sza = float(child4.text)
+                                elif child4.tag == "AZIMUTH_ANGLE":
+                                    saa = float(child4.text)
+
+    # Add full filepath and extension to image band paths
+    for i in range(len(imagefiles)):
+        imagefiles[i] = metadataPath + imagefiles[i] + ".jp2"
+        #Strips filename off end to access later on
+        #does this change the filename??
+        bandname.append(imagefiles[i].split("/")[-1])
+        #print type(bandname[2])
+    metadata = [imagefiles, bandname, saa, sza, ESUN, U, quantification, year, month, day, jday, hr, sceneCentre]
     return metadata
 
-def read_raster_WV2(bluegreendict):
+def read_raster_landsat(read_dict_L8):
     '''Opens the raster file and reads it as an array, also it gets some basic information from the raster file.'''
-    raster_filename = bluegreendict['filename']
+    raster_filename = read_dict_L8['filename']
     raster_ds = gdal.Open(raster_filename)
     if raster_ds is None:
         sys.exit(1)
@@ -326,6 +338,7 @@ def read_raster_WV2(bluegreendict):
     raster_srs.ImportFromWkt(projection)
     #  Read the bands
     bands = []
+    print("read_raster_L8() is now appending " + str(range(nbands)) + " bands to a list.")
     for i in range(nbands):
         bands.append(raster_ds.GetRasterBand(i + 1))
     #  Read data to array
@@ -339,40 +352,168 @@ def read_raster_WV2(bluegreendict):
         integerv = False
 
     #  Dictionary
-    raster_dict_WV2 = {"xsize": xsize, "ysize": ysize, "nbands": nbands, "projection": projection,
+    raster_dict_L8 = {"xsize": xsize, "ysize": ysize, "nbands": nbands, "projection": projection,
                        "geotransform": geotransform, "rastersrs": raster_srs, "filename": raster_filename,
                        "rasterds": raster_ds, "array": array}
-    return raster_dict_WV2
+    return raster_dict_L8
 
-def TOA_refl_WV2(imagefile, outfolder):
-    '''Creates a Top Of Atmosphere reflectance image'''
-    nbands = 5
-
+def read_raster_S2(rfdict):
+    '''Opens the raster file and reads it as an array, also it gets some basic information from the raster file.'''
+    raster_filename = rfdict['filename']
+    raster_ds = gdal.Open(raster_filename)
+    if raster_ds is None:
+        sys.exit(1)
+    xsize = raster_ds.RasterXSize
+    ysize = raster_ds.RasterYSize
+    nbands = raster_ds.RasterCount
+    projection = raster_ds.GetProjection()
+    geotransform = raster_ds.GetGeoTransform()
+    #  Get raster srs
+    raster_srs = osr.SpatialReference()
+    raster_srs.ImportFromWkt(projection)
+    #  Read the bands
+    bands = []
+    print("read_raster_S2() is now appending " + str(range(nbands)) + " bands to a list.")
     for i in range(nbands):
-        dataset = openGDALDataset(imagefile)
+        bands.append(raster_ds.GetRasterBand(i + 1))
+    #  Read data to array
+    array = []
+    for i in range(nbands):
+        array.append(bands[i].ReadAsArray(0, 0, xsize, ysize))
+    #  check if data are in integers or floats
+    if np.issubdtype(array[0].dtype, np.integer) is True:
+        integerv = True
+    else:
+        integerv = False
+
+    #  Dictionary
+    raster_dict_S2 = {"xsize": xsize, "ysize": ysize, "nbands": nbands, "projection": projection,
+                       "geotransform": geotransform, "rastersrs": raster_srs, "filename": raster_filename,
+                       "rasterds": raster_ds, "array": array}
+
+    print("read_raster_S2() has created a dictionary. The value of the rasterds key is: " + str(raster_ds))
+    return raster_dict_S2
+
+def TOA_refl_landsat(read_dict_L8, raster_dict_L8, outputfolder):
+    '''Creates a Top Of Atmosphere reflectance image'''
+    # Calculate TOA reflectance
+    TOA_refl_landsat = ((raster_dict_L8['array'][0] * read_dict_L8['rmult']) + read_dict_L8['radd'])
+    #  Write result to file
+    toa_raster_filename = outputfolder + "/" + read_dict_L8['bandname'].split(".TIF")[0] + "_TOA.tif"
+    toa_bandname = read_dict_L8['bandname'].split(".TIF")[0] + "_TOA.tif"
+    raster_driver = gdal.GetDriverByName("GTiff")
+    toa_raster_dataset = raster_driver.Create(toa_raster_filename, raster_dict_L8['xsize'], raster_dict_L8['ysize'],
+                                              1, gdal.GDT_Float32)
+    toa_raster_dataset.SetGeoTransform(raster_dict_L8['geotransform'])
+    toa_raster_dataset.SetProjection(raster_dict_L8['projection'])
+    band = toa_raster_dataset.GetRasterBand(1)
+    band.WriteArray(TOA_refl_landsat)
+    toa_raster_dataset = None
+
+    toa_LandsatDict = {"toabandname": toa_bandname, 'filename': toa_raster_filename, "xsize": raster_dict_L8['xsize'],
+                "ysize": raster_dict_L8['ysize'], "projection": raster_dict_L8['projection'],
+                "geotransform": raster_dict_L8['geotransform']}
+    return toa_LandsatDict
+
+def TOA_refl_S2(imagefile, bandname, outfolder):
+    '''Creates a Top Of Atmosphere reflectance image'''
+    # Calculate TOA reflectance
+    #Sentinel data already in TOA Refl, just need to divide the DN by 10000
+    dataset = openGDALDataset(imagefile)
+    '''for i in range(nbands):
+        #dataset = openGDALDataset(imagefile)
         xsize, ysize, fileNbands, projection, GT = getDatasetProperties(dataset)
         raster_srs = osr.SpatialReference()
         raster_srs.ImportFromWkt(dataset.GetProjection())
-        band = dataset.getRasterBand(i + 1)
-
+        band = dataset.getRasterBand(1)'''
+        #dataset = openGDALDataset(imagefile)
+    xsize, ysize, fileNbands, projection, GT = getDatasetProperties(dataset)
+    raster_srs = osr.SpatialReference()
+    raster_srs.ImportFromWkt(dataset.GetProjection())
+    band = dataset.GetRasterBand(1)
+    #ulXPixel, ulYPixel = world2Pixel(GT, minX, maxY)
+    #lrXPixel, lrYPixel = world2Pixel(GT, maxX, minY)
     DN = band.ReadAsArray(0, 0, xsize, ysize).astype(float)
     DN[DN == 0] = np.nan
+    TOA_refl_S2 = DN / 10000
+
+    if ("B01.jp2" in bandname):
+        TOA_refl_S2 = scipy.ndimage.zoom(TOA_refl_S2, 6, order=0)  # Resample to match other bands
+
+        GT = (GT[0], 10.0, GT[2], GT[3], GT[4], -10.0)
+        #GT[1] = 10.0
+        #GT[5] = -10.0
+        xsize = xsize * 6
+        ysize = ysize * 6
+        ### Maybe need to update rasterds as well, if needed later in code ###
+
+
     #  Write result to file
-    toa_bandname = bandname.split(".tif")[0] + "_TOA.tif"
-    toa_raster_filename = outfolder + "/" + bandname.split(".tif")[0] + "_TOA.tif"
+    toa_bandname = bandname.split(".jp2")[0] + "_TOA.tif"
+    toa_raster_filename = outfolder + "/" + bandname.split(".jp2")[0] + "_TOA.tif"
     raster_driver = gdal.GetDriverByName("GTiff")
     toa_raster_dataset = raster_driver.Create(toa_raster_filename, xsize, ysize,
                                               1, gdal.GDT_Float32)
     toa_raster_dataset.SetGeoTransform(GT)
     toa_raster_dataset.SetProjection(projection)
     toa_band = toa_raster_dataset.GetRasterBand(1)
-    toa_band.WriteArray(TOA_refl_WV2)
+    toa_band.WriteArray(TOA_refl_S2)
     toa_raster_dataset = None
 
-    toa_dict_WV2 = {"toabandname": toa_bandname, 'filename': toa_raster_filename, "nbands": fileNbands, "xsize": xsize,
+    toa_dict_S2 = {"toabandname": toa_bandname, 'filename': toa_raster_filename, "nbands": fileNbands, "xsize": xsize,
                    "ysize": ysize, "rastersrs": raster_srs, "rasterds": dataset, "projection": projection,
                    "geotransform": GT, }
-    return toa_dict_WV2
+    return toa_dict_S2
+
+def deep_kernel_S2(imagefile, kernelsize):
+    '''Opens the raster file as an array, creates a kernel and evaluates the kernel on the image file it's given.'''
+    # find and return bandname
+    imagefilename = imagefile
+    imagery = gdal.Open(imagefilename)
+    image_array = np.array(imagery.GetRasterBand(1).ReadAsArray())
+    # Defines kernel size:
+    kernel_size = kernelsize
+    # print 'Kernel size =', kernel_size
+    # Calculates the size of the image array:
+    image_array_shape = image_array.shape
+    image_x_size = image_array_shape[1]
+    image_y_size = image_array_shape[0]
+    # print 'x size =', image_x_size
+    # print 'y size =', image_y_size
+
+    # Creates processing kernel and
+    kernel = np.zeros((kernel_size, kernel_size))
+
+    # Setting starting point for left corner
+    left_corner_x = 0
+    left_corner_y = 0
+
+    # Defining LC value & B7_mean for beginning
+    darkest_LCX = 0
+    darkest_LCY = 0
+    darkest_B11 = 999999
+    mean_B11 = 999999
+    # Tracks kernel across image:
+    # while
+    while left_corner_y < (image_y_size - kernel_size):
+        while left_corner_x < (image_x_size - kernel_size):
+            # Populates kernel and calculates mean:
+            kernel[0:kernel_size, 0:kernel_size] = image_array[left_corner_y:(left_corner_y + kernel_size),
+                                                   left_corner_x:(left_corner_x + kernel_size)]
+            if np.all(kernel[:, :] > 0):
+                mean_B11 = np.average(kernel)
+                # print mean_B7
+                # print 'dark',darkest_B7
+                if mean_B11 < darkest_B11:
+                    darkest_B11 = mean_B11
+                    darkest_LCX = left_corner_x
+                    darkest_LCY = left_corner_y
+                    # Ticks up the left corner position
+            left_corner_x = left_corner_x + kernel_size
+        left_corner_x = 0  # Resets us back to the left of the image after completing the row.
+        left_corner_y = left_corner_y + kernel_size
+    kernel_dict_S2 = {"darkestmean": darkest_B11, "lcy": darkest_LCY, "lcx": darkest_LCX, "kernelsize": kernel_size}
+    return kernel_dict_S2
 
 #Not running yet - need to determine which band calibration to use.
 def deep_kernel_WV2(nir1dict, kernelsize):
@@ -426,27 +567,35 @@ def deep_kernel_WV2(nir1dict, kernelsize):
     kernel_dict_WV2 = {"darkestmean": darkest_nir1, "lcy": darkest_LCY, "lcx": darkest_LCX, "kernelsize": kernel_size}
     return kernel_dict_WV2
 
-def log_bluegreen_WV2(bluedict, greendict, readshp_dict, fieldname, outputfolder):
-    '''Creates the logarithm division raster image blue / green'''
+def randomForestRegression_S2(coastaldict, bluedict, greendict, reddict, readshp_dict,
+                                fieldname, outputfolder):
+    '''Creates the random forest machine learning method using the coastal, blue, green, and red bands as inputs.'''
+    #  Open the blue band
+    coastal_image = gdal.Open(coastaldict['filename'])
+    coastal_band = coastal_image.GetRasterBand(1)
+    gt = coastal_image.GetGeoTransform()
+
     #  Open the blue band
     blue_image = gdal.Open(bluedict['filename'])
     blue_band = blue_image.GetRasterBand(1)
-    print type(blue_band)
-    gt = blue_image.GetGeoTransform()
 
     #  Open the green band
     green_image = gdal.Open(greendict['filename'])
     green_band = green_image.GetRasterBand(1)
 
+    #  Open the green band
+    red_image = gdal.Open(reddict['filename'])
+    red_band = red_image.GetRasterBand(1)
+
+    coastal_values = []
     blue_values = []
     green_values = []
     depth_values = []
+    red_values = []
 
     #Open shapefile to get depths data
     shp_driver = ogr.GetDriverByName('ESRI Shapefile')
-    print type(shp_driver)
     ds = shp_driver.Open(readshp_dict['shpfilename'], 0)
-    print type(ds)
     if shp_driver is None:
         sys.exit("Could not open depth file.")
     else:
@@ -456,7 +605,7 @@ def log_bluegreen_WV2(bluedict, greendict, readshp_dict, fieldname, outputfolder
         for i in range(nfields):
             fieldDefn = lyrDefn.GetFieldDefn(i)
             fieldName = fieldDefn.GetName()
-            if fieldName == fieldname:  # From the plugin instructions.
+            if fieldName == fieldname:  # Ask for this fieldname under plugins instruction
                 break
         for feat in lyr:
             # Find all values in depth, blue and green datasets, append to lists.
@@ -466,92 +615,115 @@ def log_bluegreen_WV2(bluedict, greendict, readshp_dict, fieldname, outputfolder
             px = int((x - gt[0]) / gt[1])
             py = int((y - gt[3]) / gt[5])
 
+            #print depth, geom, x, y, px, py
+            coastalval = coastal_band.ReadAsArray(px, py, 1, 1)[0][0]
             blueval = blue_band.ReadAsArray(px, py, 1, 1)[0][0]
             greenval = green_band.ReadAsArray(px, py, 1, 1)[0][0]
+            redval = red_band.ReadAsArray(px, py, 1, 1)[0][0]
 
             depth_values.append(depth)
+            coastal_values.append(coastalval)
             blue_values.append(blueval)
             green_values.append(greenval)
+            red_values.append(redval)
+
 
     depth_values = np.asarray(depth_values)
+    coastal_values = np.asarray(coastal_values)
     blue_values = np.asarray(blue_values)
     green_values = np.asarray(green_values)
+    red_values = np.asarray(red_values)
 
-    # Added by Anders, to get rid of points that have nan in either depth_values OR blue_values OR green_values
-    good_values = np.logical_not(np.logical_or(np.isnan(depth_values), np.isnan(blue_values), np.isnan(green_values)))
-    depth_values = depth_values[good_values]
-    blue_values = blue_values[good_values]
-    green_values = green_values[good_values]
+    # Get test data to train machine learning model with
+    good_values = np.where(~np.isnan(coastal_values + blue_values + green_values + red_values), 1, 0) # Those that are not nan in any array
+    good_coastal_values = coastal_values[good_values == 1]
+    good_blue_values = blue_values[good_values == 1]
+    good_green_values = green_values[good_values == 1]
+    good_red_values = red_values[good_values == 1]
+    good_depth_values = depth_values[good_values == 1]
 
-    print "looking for best r for constant n..."
-    # Looks for best value of r for n in the Stumpf equation and applies it to algorithm.
-    #This value is variable and creates the linear relationship between blue and green values.
-    best_cor = -1
-    best_n = 100
-    for j in range(1, 2000):
-        bg_ratio = (np.log(j*blue_values))/(np.log(j*green_values))
-        cor = np.corrcoef(depth_values, bg_ratio)[0,1]
-        if (cor > best_cor):
-            best_cor = cor
-            best_n = j
+    X = np.transpose(np.array([good_coastal_values.flatten(), good_blue_values.flatten(),
+                                            good_green_values.flatten(), good_red_values.flatten()]))
 
-    print ("The best value of n is " + str(best_n) + ".")
-    print ("The correlation for that value is " + str(best_cor) + ".")
+    goodval = np.sum(X, axis=1)
+    good_coastalval = np.where(~np.isnan(goodval), good_coastal_values.flatten(), 0)
+    good_blueval = np.where(~np.isnan(goodval), good_blue_values.flatten(), 0)
+    good_greenval = np.where(~np.isnan(goodval), good_green_values.flatten(), 0)
+    good_redval = np.where(~np.isnan(goodval), good_red_values.flatten(), 0)
 
-    blue_ds = gdal.Open(bluedict['filename'])
-    blue_image_array = np.array(blue_ds.GetRasterBand(1).ReadAsArray())
-    green_ds = gdal.Open(greendict['filename'])
-    green_image_array = np.array(green_ds.GetRasterBand(1).ReadAsArray())
+    df = np.transpose(
+        np.array([good_coastalval, good_blueval, good_greenval, good_redval]))
+    X_train, X_test, y_train, y_test = train_test_split(df, good_depth_values, train_size=0.5, random_state=42)
+    rf_reg = RandomForestRegressor(n_jobs=4, n_estimators=100)
+    rf_reg.fit(X_train, y_train)
 
-    #  Create the division array using best n value
-    blue_green = (np.log(best_n*blue_image_array)) / (np.log(best_n*green_image_array))
-    #nan = np.isnan(blue_green)
-    #inf = np.isinf(blue_green)
 
-    # Testing way to get rid of inf, ninf, and nan values
-    blue_green[blue_green == np.NINF] = 0
-    blue_green[blue_green == np.inf] = 0
-    blue_green[blue_green == np.nan] = 0
+    ### OLD VERSION ###
+    # Make predictions
+    #rf_predicted = rf_reg.predict(X_test)
+    #predicted_2d = rf_predicted.reshape(good_coastal_values.shape[0], good_coastal_values.shape[1])
+
+    # Remove NAN predictions (that are not currently NAN
+    #value_to_remove = rf_reg.predict(np.array([[0, 0, 0, 0]]))
+    #predicted_2d_clean = np.where(rf_predicted == value_to_remove, 0, rf_predicted)
+    ###################
+
+    ### NEW VERSION BY ANDERS ###
+    ### WHO IS THE BOMB DOT COM ###
+    coastalarray = coastal_band.ReadAsArray()
+    bluearray = blue_band.ReadAsArray()
+    greenarray = green_band.ReadAsArray()
+    redarray = red_band.ReadAsArray()
+
+    all_arrays_flattened = np.transpose(np.array([coastalarray.flatten(), bluearray.flatten(), greenarray.flatten(), redarray.flatten()]))
+    new_goodval = np.sum(all_arrays_flattened, axis=1)
+    new_good_coastalval = np.where(~np.isnan(new_goodval), coastalarray.flatten(), 0)
+    new_good_blueval = np.where(~np.isnan(new_goodval), bluearray.flatten(), 0)
+    new_good_greenval = np.where(~np.isnan(new_goodval), greenarray.flatten(), 0)
+    new_good_redval = np.where(~np.isnan(new_goodval), redarray.flatten(), 0)
+
+    for_prediction = np.transpose(
+        np.array([new_good_coastalval, new_good_blueval, new_good_greenval, new_good_redval]))
+    rf_predicted = rf_reg.predict(for_prediction)
+    predicted_2d = rf_predicted.reshape(coastalarray.shape[0], coastalarray.shape[1])
+
+    # Note, this is not a great way to find out what values are predicted from pixels that have NoData in them. Should be improved. Not even sure it works at this point.
+    value_to_remove = rf_reg.predict(np.array([[0, 0, 0, 0]]))
+    predicted_2d_clean = np.where(predicted_2d == value_to_remove, 0, predicted_2d)
+    #value_to_remove = scipy.stats.mode(rf_predicted)
+    #predicted_2d_clean = np.where(predicted_2d == value_to_remove, 0, predicted_2d)
+
+    #close all the open files from finding best n so can re-open them to perform the actual function.
+    coastal_image = None
+    coastal_band = None
+    coastalval = None
+    blue_image = None
+    blue_band = None
+    blueval = None
+    green_image = None
+    green_band = None
+    greenval = None
+    red_image = None
+    red_band = None
+    redval = None
+
 
     #  Create the raster file
-    blue_green_filename = outputfolder + "/" + "Blue_Green_log.tif"
-    blue_green_bandname = "Blue_Green_log.tif"
+    rf_filename = outputfolder + "/" + "random_forest.tif"
+    rf_bandname = "random_forest.tif"
     raster_driver = gdal.GetDriverByName("GTiff")
-    blue_green_dataset = raster_driver.Create(blue_green_filename, bluedict['xsize'], bluedict['ysize'],
+    rf_dataset = raster_driver.Create(rf_filename, bluedict['xsize'], bluedict['ysize'],
                                               1, gdal.GDT_Float32)
-    blue_green_dataset.SetGeoTransform(bluedict['geotransform'])
-    blue_green_dataset.SetProjection(bluedict['projection'])
-    band = blue_green_dataset.GetRasterBand(1)
-    band.WriteArray(blue_green)
-    blue_green_dataset = None
-    blue_green_dict = {"bandname": blue_green_bandname, 'filename': blue_green_filename, "bluegreen_log": blue_green,
-                       "geotransform": bluedict['geotransform'], "projection": bluedict['projection']}
+    rf_dataset.SetGeoTransform(bluedict['geotransform'])
+    rf_dataset.SetProjection(bluedict['projection'])
+    band = rf_dataset.GetRasterBand(1)
+    band.WriteArray(predicted_2d_clean)
+    multiband_dataset = None
+    randomForest_dict = {"bandname": rf_bandname, 'filename': rf_filename, "random_forest":
+                        predicted_2d_clean, "geotransform": bluedict['geotransform'], "projection":
+                        bluedict['projection']}
 
-    return blue_green_dict
-
-def bluegreen_kernel_WV2(bluegreen_logarray, kernel_dict_WV2):
-    '''Uses the deep kernel found and evaluates it in the division array so we obtain a standard deviation
-    for the kernel, and a mean value'''
-    imagefilename = bluegreen_logarray['filename']
-    imagery = gdal.Open(imagefilename)
-    image_array = np.array(imagery.GetRasterBand(1).ReadAsArray())
-    left_corner_y = kernel_dict_WV2['lcy']
-    left_corner_x = kernel_dict_WV2['lcx']
-    kernel_size = kernel_dict_WV2['kernelsize']
-    kernel = np.zeros((kernel_size, kernel_size))
-    kernel[0:kernel_size, 0:kernel_size] = image_array[left_corner_y:(left_corner_y + kernel_size),
-                                           left_corner_x:(left_corner_x + kernel_size)]
-    #  Get the kernels standard deviation
-    if np.all(kernel[:, :] > 0):
-        stdev = np.std(kernel)
-    #  Get the kernels mean
-        bluegreen_mean = np.mean(kernel)
-        bluegreen_max = np.max(kernel)
-        bluegreen_min = np.min(kernel)
-
-    bgk = {"std": stdev, "mean": bluegreen_mean, "mid": kernel[(kernel_size/2), (kernel_size/2)], "max": bluegreen_max,
-           "min": bluegreen_min}
-    return bgk
+    return randomForest_dict
 
 def read_shp(shpfilename):
     '''Reads and opens the shape file.'''
@@ -613,14 +785,14 @@ def reproject_data(shpfilename, shpsrs, rastersrs, shpdriver, layer):
     reprojectdata_dict = {"shpfilename": shp_filename}
     return reprojectdata_dict
 
-def extract_raster_shp_WV2(readshp_dict, toa_dict_WV2, fieldname):
-    print("Running extract raster shp_WV2...")
-    band = toa_dict_WV2['rasterds'].GetRasterBand(1)
-    print("Successfully accessed toa_dict_WV2[rasterds])")
-    bandArray = band.ReadAsArray(0, 0, toa_dict_WV2['xsize'], toa_dict_WV2['ysize'])
+def extract_raster_shp_S2(readshp_dict, toa_dict_S2, fieldname):
+    print("Running extract raster shp_s2...")
+    band = toa_dict_S2['rasterds'].GetRasterBand(1)
+    print("Successfully accessed toa_dict_S2[rasterds])")
+    bandArray = band.ReadAsArray(0, 0, toa_dict_S2['xsize'], toa_dict_S2['ysize'])
     maxR = len(bandArray)
     maxC = len(bandArray[0])
-    bg_ratio = []
+    rf_value = []
     #Returns a list with the values of depth for the shape file
     layerDefn = readshp_dict['layer'].GetLayerDefn()
     nfields = layerDefn.GetFieldCount()
@@ -642,10 +814,10 @@ def extract_raster_shp_WV2(readshp_dict, toa_dict_WV2, fieldname):
         x = geom.GetX()
         y = geom.GetY()
 
-        ulx = toa_dict_WV2["geotransform"][0]  # x coordinate for upper left corner
-        uly = toa_dict_WV2["geotransform"][3]  # y coordinate for upper lefr corner
-        xres = toa_dict_WV2["geotransform"][1]  # pixel size in the x dimension
-        yres = toa_dict_WV2["geotransform"][5]  # pixel size in the y dimension
+        ulx = toa_dict_S2["geotransform"][0]  # x coordinate for upper left corner
+        uly = toa_dict_S2["geotransform"][3]  # y coordinate for upper lefr corner
+        xres = toa_dict_S2["geotransform"][1]  # pixel size in the x dimension
+        yres = toa_dict_S2["geotransform"][5]  # pixel size in the y dimension
 
         #  Convert x, y coordinates to row, column
         col = int((x - ulx) / xres)
@@ -656,17 +828,17 @@ def extract_raster_shp_WV2(readshp_dict, toa_dict_WV2, fieldname):
             if not np.isnan(bandValue):
                 depth = feature.GetField(i)
                 depth_value.append(depth)
-                bg_ratio.append(bandValue)
+                rf_value.append(bandValue)
     readshp_dict['shpds'] = None
-    toa_dict_WV2['rasterds'] = None
-    extract_dict_WV2 = {"depths": depth_value, "bgratio": bg_ratio}
-    return extract_dict_WV2
+    toa_dict_S2['rasterds'] = None
+    extract_dict_S2 = {"depths": depth_value, "rf_values": rf_value}
+    return extract_dict_S2
 
 def regression_array(extract_rshp_dict):
     '''Creates the regression array with the depth and blue/green logarithm lists.'''
     regressionarray = np.zeros((len(extract_rshp_dict['depths']), 2))
     regressionarray[:, 0] = extract_rshp_dict['depths']
-    regressionarray[:, 1] = extract_rshp_dict['bgratio']
+    regressionarray[:, 1] = extract_rshp_dict['rf_values']
     return regressionarray
 
 def plot(scatter_ar, plots, plot_title, outfolder):
@@ -682,16 +854,16 @@ def plot(scatter_ar, plots, plot_title, outfolder):
     plt_dict = {"filename": filename}
     return plt_dict
 
-def extract_array_WV2(reg_ar_WV2, startvalue, endvalue):
+def extract_array_S2(reg_ar_S2, startvalue, endvalue):
     narray = []
     startvalue = float(startvalue)
     endvalue = float(endvalue)
-    for i in range(len(reg_ar_WV2)):
+    for i in range(len(reg_ar_S2)):
         #dv = reg_ar[:, np.newaxis, 0][i][0]
-        dv = float(reg_ar_WV2[i, 0])  # Should be simpler
+        dv = float(reg_ar_S2[i, 0])  # Should be simpler
         #if startvalue <= dv < endvalue:
         if (dv < endvalue) and (startvalue <= dv):
-            narray.append(reg_ar_WV2[i])
+            narray.append(reg_ar_S2[i])
     return np.asarray(narray)
 
 ##### Statistics #####
@@ -806,7 +978,7 @@ def plot_ols(regression_dict, traintest_dict, outputfolder):
              linewidth=2)
     plt.legend(loc='best')
     plt.title("Ordinary Least Squares Regression")
-    plt.xlabel('Blue Green ratio (Ln)')
+    plt.xlabel('Random Forest Values')
     plt.ylabel('Depth (m)')
     plt.savefig(outputfolder + "\OLS_plot.png")
     plt.close()
@@ -972,161 +1144,77 @@ def create_all_depths_array(all_depths_dict):
     print ("Save complete.")
     return ad_depth_ar
 
-mtl_filename = ("D:/Kiyomi/Nunavut/Imagery/WorldView2/Igloolik/056744514030_01_P001_MUL/"
-                         "13AUG06181741-M2AS-056744514030_01_P001.xml")
-shp_filename = ("D:/Kiyomi/Nunavut/Depths/AllDepths/Old/Igloolik_cal.shp")
-out_folder = ("D:/Kiyomi/Nunavut/SDBOutputs/WVTest")
-depthColName = ("Depth")
+mtl_filename = ("D:/Kiyomi/Nunavut/Imagery/Sentinel2/CambridgeBay/"
+                "S2A_MSIL1C_20160809T190922_N0204_R056_T13WDS_20160809T190917.SAFE/MTD_MSIL1C.xml")
+shp_filename = ("D:/Kiyomi/Nunavut/CHSData/Depths/CB_lidar_S2.shp")
+out_folder = ("D:/Kiyomi/Nunavut/SDBOutputs/RandomForest/SentinelTest")
+depthColName = ("field_3")
 
 # Get metadata
-metadata = read_mtl_WV2(mtl_filename)
+print ("randomForest_S2 has been called.")
 
-sza = metadata[3]
-jday = metadata[9]
+# Read metadata
+metadata = read_mtl_S2(mtl_filename)
 
-# Gains and offsets
-gains = [1.151, 0.988, 0.936, 0.949, 0.952, 0.974, 0.961, 1.002]
-offsets = [-7.478, -5.736, -3.546, -3.564, -2.512, -4.120, -3.300, -2.891]
+# read metadata for coastal band
+coastal_bandname = metadata[1][0]
+coastalband = metadata[0][0]
+toa_coastalband = TOA_refl_S2(coastalband, coastal_bandname, out_folder)
 
-# ESUN
-ESUNs = [1773.81, 2007.27, 1829.62, 1701.85, 1538.85, 1346.09, 1053.21, 856.599]
 
-# Fixed central wavelengths
-nbands = 5
-central_wavelengths = [428.4, 479.2, 547.6, 608.0, 659.2, 723.8, 827.7, 923.3]
+# Read metadata for blue band
+blue_bandname = metadata[1][1]
+blueband = metadata[0][1]
+toa_blueband = TOA_refl_S2(blueband, blue_bandname, out_folder)
 
-# Get the calibration for green and blue bands
-blue_cal = metadata[1][1]
-green_cal = metadata[1][2]
-nir1_cal = metadata[1][6]
+#  Read metadata for green band
+green_bandname = metadata[1][2]
+greenband = metadata[0][2]
+toa_greenband = TOA_refl_S2(greenband, green_bandname, out_folder)
 
-# Read WV2 image
-imagefile = metadata[0]
-dataset = gdal.Open(imagefile[0])
-xsize, ysize, fileNbands, projection, GT = getDatasetProperties(dataset)
-raster_srs = osr.SpatialReference()
-raster_srs.ImportFromWkt(dataset.GetProjection())
-band = dataset.GetRasterBand(1)
-DN = band.ReadAsArray(0, 0, xsize, ysize).astype(float)
-DN[DN == 0] = np.nan
-# Calculate blue TOA reflectance and save as new image.
-print ("Calculating blue TOA reflectance.")
-blue_image = ((gains[1] * DN * blue_cal + offsets[1]) * pow(getEarthSunDistance(jday),
-                                                            2) * np.pi) / (
-                     ESUNs[1] * math.cos(deg2rad(sza)))
-
-print ("Saving as new raster.")
-blue_toa = "Blue_TOA.tif"
-blue_toa_filename = out_folder + "/" + blue_toa
-blue_raster_driver = gdal.GetDriverByName("GTiff")
-blue_toa_dataset = blue_raster_driver.Create(blue_toa_filename, xsize, ysize, 1, gdal.GDT_Float32)
-blue_toa_dataset.SetGeoTransform(GT)
-blue_toa_dataset.SetProjection(projection)
-blueband_toa = blue_toa_dataset.GetRasterBand(1)
-blueband_toa.WriteArray(blue_image)
-blue_toa_dataset = None
-toa_blueband = {"toabandname": blue_toa, 'filename': blue_toa_filename, "nbands": fileNbands, "xsize": xsize,
-                "ysize": ysize, "rastersrs": raster_srs, "rasterds": dataset, "projection": projection,
-                "geotransform": GT}
-
-print ("Save completed, calculating green TOA reflectance.")
-# Calculate green TOA reflectance and save as new raster image.
-green_image = ((gains[2] * DN * green_cal + offsets[2]) * pow(getEarthSunDistance(jday),
-                                                              2) * np.pi) / (
-                      ESUNs[2] * math.cos(deg2rad(sza)))
-
-print ("Saving as new raster.")
-green_toa = "Green_TOA.tif"
-green_toa_filename = out_folder + "/" + green_toa
-green_raster_driver = gdal.GetDriverByName("GTiff")
-green_toa_dataset = green_raster_driver.Create(green_toa_filename, xsize, ysize, 1, gdal.GDT_Float32)
-green_toa_dataset.SetGeoTransform(GT)
-green_toa_dataset.SetProjection(projection)
-greenband_toa = green_toa_dataset.GetRasterBand(1)
-greenband_toa.WriteArray(green_image)
-green_toa_dataset = None
-toa_greenband = {"toabandname": green_toa, 'filename': green_toa_filename, "nbands": fileNbands, "xsize": xsize,
-                 "ysize": ysize, "rastersrs": raster_srs, "rasterds": dataset, "projection": projection,
-                 "geotransform": GT}
-print ("Save completed. Calculating deep water file.")
-
-#  Deep water
-nir1_image = ((gains[6] * DN * nir1_cal + offsets[6]) * pow(getEarthSunDistance(jday),
-                                                            2) * np.pi) / (
-                     ESUNs[6] * math.cos(deg2rad(sza)))
-
-print ("Saving NIR1 raster.")
-
-nir1_toa = "nir1_TOA.tif"
-nir1_toa_filename = out_folder + "/" + nir1_toa
-nir1_raster_driver = gdal.GetDriverByName("GTiff")
-nir1_toa_dataset = nir1_raster_driver.Create(nir1_toa_filename, xsize, ysize, 1, gdal.GDT_Float32)
-nir1_toa_dataset.SetGeoTransform(GT)
-nir1_toa_dataset.SetProjection(projection)
-nir1band_toa = nir1_toa_dataset.GetRasterBand(1)
-nir1band_toa.WriteArray(nir1_image)
-nir1_toa_dataset = None
-toa_nir1band = {"bandname": nir1_toa, 'filename': nir1_toa_filename, "nbands": fileNbands, "xsize": xsize,
-                "ysize": ysize, "rastersrs": raster_srs, "rasterds": dataset, "projection": projection,
-                "geotransform": GT}
-print ("Save completed.")
-
+# Read metadata for red band
+red_bandname = metadata[1][3]
+redband = metadata[0][3]
+toa_redband = TOA_refl_S2(redband, red_bandname, out_folder)
+print ("All bands open and corrected for TOA reflectances.")
 #  Shapefile stuff
 # Open
-
+print ("Opening shapefile.")
 shpdict = read_shp(shp_filename)
 #  Reproject shapefile
 print ("Reprojecting shapefile")
-rprj = reproject_data(shp_filename, shpdict['shpsrs'], raster_srs,
+rprj = reproject_data(shp_filename, shpdict['shpsrs'], toa_blueband['rastersrs'],
                       shpdict['shpdriver'],
                       shpdict['layer'])
-'''processing.runalg('gdalogr:clipvectorsbyextent', rprj['shpfilename'],GT[0],GT[1],GT[3],GT[5],
-                  rprj['shpfilename'] + "_clip.shp")'''
 #  Close the old shapefile
 shpdict['shpds'] = None
 print ("User shapefile has been reprojected.")
 
-#  Make the blue green logarithm array
-print("Running log_bluegreen()")
-blue_green_log = log_bluegreen_WV2(toa_blueband, toa_greenband, rprj, depthColName, out_folder)
-
-print("Successfully run log_bluegreen() ")
-kernel = deep_kernel_WV2(toa_nir1band, 20)
+#  Extract the depth values from the shapefile
+print ("Now calling randomForestRegression function.")
+rf = randomForestRegression_S2(toa_coastalband, toa_blueband, toa_greenband, toa_redband,
+                                            rprj, depthColName, out_folder)
+print ("Multiple linear regression completed. Now reading image to extract data.")
 #  Get the blue green kernels std and mean
-# blue_green_kernel = bluegreen_kernel_WV2(blue_green_log, kernel)
+#multiband_kernel = multiband_kernel_landsat(multiband_log, kernel)
+
+#  Extract the depths and shape values from the blue and green toa bands
+#  Open the blue green logarithmic division
+rf_dataset = read_raster_S2(rf)
 
 #  Open the reprojected shapefile
 rprjshp = read_shp(rprj['shpfilename'])
-#  Extract the depth values from the shapefile
-#  Extract the depths and shape values from the blue and green toa bands
-#  Open the blue green logarithmic division
-print("read_raster_WV2 has been called.")
-blue_green = read_raster_WV2(blue_green_log)
-print blue_green
-
-print("read_raster_WV2 has finished running and blue_green variable has data assigned to it")
-
 #  extract the values into a list
-
-print("about to call extract_raster_shp_WV2")
-
-blue_green_values = extract_raster_shp_WV2(rprjshp, blue_green, depthColName)  # Blue/ Green List
-print blue_green_values
-print("Finished running extract_raster_shp_WV2 ")
+rf_values = extract_raster_shp_S2(rprjshp, rf_dataset, depthColName)  # Blue/ Green List
 #  Create the regression array
-print("Running regression_array")
-regr_ar = regression_array(blue_green_values)
-print("Finished running regression_array")
-print regr_ar
+regr_ar = regression_array(rf_values)
 plotlist = []
 # plot the data
 data_plot = plot(regr_ar, plotlist, 'Data', out_folder)
-
 #  Dictionary
-ratioPart1Dict = {"imagefile": imagefile, "blue_toa": toa_blueband,
-                  "green_toa": toa_greenband, "log_blue_green": blue_green_log, "rprj_shapefile": rprj['shpfilename'],
-                  "bluegreen_ratio": blue_green_values,
-                  "regression_array": regr_ar, "plot_data": data_plot}
-blue_green = None
-print ("ratio_WV2 completed.")
-
+randomForestDict_S2 = {"coastal_toa": toa_coastalband, "blue_toa": toa_blueband, "green_toa": toa_greenband,
+                 "red_toa": toa_redband, "random_forest": rf,
+                 "rprj_shapefile": rprj['shpfilename'], "rf_values": rf_values,
+                 "regression_array": regr_ar, "plot_data": data_plot}
+rf_dataset = None
+#return randomForestDict_S2

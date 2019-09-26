@@ -1,27 +1,26 @@
 #################################################################
 #                                                               #
-#                   Multiband Functions                         #
-#                  for SDB Tools Plugin                         #
+#                     Random Forest                             #
+#            Functions for SDB Tools Plugin                     #
 #           Kiyomi Holman, kholm074@uottawa.ca                  #
 #                                                               #
 #################################################################
 
 from sklearn.linear_model import LinearRegression
 from sklearn.model_selection import train_test_split
-from sklearn import linear_model
+from sklearn import linear_model, cross_validation
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.datasets import make_regression
+from sklearn.metrics import make_scorer, accuracy_score
 from osgeo import gdal, ogr, osr
-from qgis.core import QgsRasterLayer, QgsMapLayerRegistry
-from PyQt4.QtCore import QFileInfo
+#from qgis.core import QgsRasterLayer, QgsMapLayerRegistry
+#from PyQt4.QtCore import QFileInfo
 import os, sys, csv
 import numpy as np
-import PIL.Image
 import matplotlib.pyplot as plt
 import math
 import xml.etree.ElementTree as ET
 import scipy.stats
-
 
 def get_cmap(n, name='hsv'):
     '''Returns a function that maps each index in 0, 1, ..., n-1 to a distinct
@@ -29,7 +28,7 @@ def get_cmap(n, name='hsv'):
     return plt.cm.get_cmap(name, n)
 
 ##### Read files #####
-'''Part 1 opens/reads metadata files and returns relevant data and arrays in TOA reflectance'''
+'''Part 1 opens/reads metadata files and returns relevant data and arrays'''
 
 def openGDALDataset(mtl_filename):
     dataset = gdal.Open(mtl_filename)
@@ -200,7 +199,6 @@ def writeGeotiff_Byte(fname, data, geo_transform, projection, compress):
 def read_mtl_landsat(mtl_filename, bandnumber):
     '''Goes through the  landsat metadata file and looks for the specified bandname, reflectance multiplier and reflectance add
     constants, and returns all them along with the bands file name.'''
-    print ("Reading band image file.")
     txt_f = open(mtl_filename, "r")
     for line in txt_f:
         splitline = line.split()
@@ -214,7 +212,6 @@ def read_mtl_landsat(mtl_filename, bandnumber):
     filename = os.path.dirname(mtl_filename) + "/" + BAND
     #  Dictionary
     read_dict_L8 = {"filename": filename, "bandname": BAND, "rmult": RMULT, "radd": RADD}
-    print ("Image read, now returning dictionary.")
     return read_dict_L8
 
 def read_mtl_S2(mtl_filename):
@@ -488,17 +485,16 @@ def read_raster_landsat(read_dict_L8):
         integerv = True
     else:
         integerv = False
-    print array
-    print geotransform
+
     #  Dictionary
     raster_dict_L8 = {"xsize": xsize, "ysize": ysize, "nbands": nbands, "projection": projection,
                        "geotransform": geotransform, "rastersrs": raster_srs, "filename": raster_filename,
                        "rasterds": raster_ds, "array": array}
     return raster_dict_L8
 
-def read_raster_S2(multidict):
+def read_raster_S2(rfdict):
     '''Opens the raster file and reads it as an array, also it gets some basic information from the raster file.'''
-    raster_filename = multidict['filename']
+    raster_filename = rfdict['filename']
     raster_ds = gdal.Open(raster_filename)
     if raster_ds is None:
         sys.exit(1)
@@ -533,9 +529,9 @@ def read_raster_S2(multidict):
     print("read_raster_S2() has created a dictionary. The value of the rasterds key is: " + str(raster_ds))
     return raster_dict_S2
 
-def read_raster_WV2(multidict):
+def read_raster_WV2(rfdict):
     '''Opens the raster file and reads it as an array, also it gets some basic information from the raster file.'''
-    raster_filename = multidict['filename']
+    raster_filename = rfdict['filename']
     raster_ds = gdal.Open(raster_filename)
     if raster_ds is None:
         sys.exit(1)
@@ -573,13 +569,10 @@ def TOA_refl_landsat(read_dict_L8, raster_dict_L8, outputfolder):
     TOA_refl_landsat = ((raster_dict_L8['array'][0] * read_dict_L8['rmult']) + read_dict_L8['radd'])
     #  Write result to file
     toa_raster_filename = outputfolder + "/" + read_dict_L8['bandname'].split(".TIF")[0] + "_TOA.tif"
-    print (toa_raster_filename)
     toa_bandname = read_dict_L8['bandname'].split(".TIF")[0] + "_TOA.tif"
     raster_driver = gdal.GetDriverByName("GTiff")
     toa_raster_dataset = raster_driver.Create(toa_raster_filename, raster_dict_L8['xsize'], raster_dict_L8['ysize'],
                                               1, gdal.GDT_Float32)
-    if toa_raster_dataset is None:
-        sys.exit("Could not create TOA dataset: " + toa_raster_filename)
     toa_raster_dataset.SetGeoTransform(raster_dict_L8['geotransform'])
     toa_raster_dataset.SetProjection(raster_dict_L8['projection'])
     band = toa_raster_dataset.GetRasterBand(1)
@@ -639,201 +632,9 @@ def TOA_refl_S2(imagefile, bandname, outfolder):
                    "geotransform": GT}
     return toa_dict_S2
 
-def TOA_refl_WV2(imagefile, outfolder):
-    '''Creates a Top Of Atmosphere reflectance image'''
-    nbands = 5
-
-    for i in range(nbands):
-        dataset = openGDALDataset(imagefile)
-        xsize, ysize, fileNbands, projection, GT = getDatasetProperties(dataset)
-        raster_srs = osr.SpatialReference()
-        raster_srs.ImportFromWkt(dataset.GetProjection())
-        band = dataset.getRasterBand(i + 1)
-
-    DN = band.ReadAsArray(0, 0, xsize, ysize).astype(float)
-    DN[DN == 0] = np.nan
-    #  Write result to file
-    toa_bandname = bandname.split(".tif")[0] + "_TOA.tif"
-    toa_raster_filename = outfolder + "/" + bandname.split(".tif")[0] + "_TOA.tif"
-    raster_driver = gdal.GetDriverByName("GTiff")
-    toa_raster_dataset = raster_driver.Create(toa_raster_filename, xsize, ysize,
-                                              1, gdal.GDT_Float32)
-    toa_raster_dataset.SetGeoTransform(GT)
-    toa_raster_dataset.SetProjection(projection)
-    toa_band = toa_raster_dataset.GetRasterBand(1)
-    toa_band.WriteArray(TOA_refl_WV2)
-    toa_raster_dataset = None
-
-    toa_dict_WV2 = {"toabandname": toa_bandname, 'filename': toa_raster_filename, "nbands": fileNbands, "xsize": xsize,
-                   "ysize": ysize, "rastersrs": raster_srs, "rasterds": dataset, "projection": projection,
-                   "geotransform": GT, }
-    return toa_dict_WV2
-
-def deep_kernel_landsat(read_dict_L8, kernelsize):
-    '''Opens the raster file as an array, creates a kernel and evaluates the kernel on the image file it's given.'''
-    # find and return bandname
-    imagefilename = read_dict_L8['filename']
-    imagery = gdal.Open(imagefilename)
-    image_array = np.array(imagery.GetRasterBand(1).ReadAsArray())
-    # Defines kernel size:
-    kernel_size = kernelsize
-    #print 'Kernel size =', kernel_size
-    # Calculates the size of the image array:
-    image_array_shape = image_array.shape
-    image_x_size = image_array_shape[1]
-    image_y_size = image_array_shape[0]
-    #print 'x size =', image_x_size
-    #print 'y size =', image_y_size
-
-    # Creates processing kernel and
-    kernel = np.zeros((kernel_size, kernel_size))
-
-    # Setting starting point for left corner
-    left_corner_x = 0
-    left_corner_y = 0
-
-    # Defining LC value & B7_mean for beginning
-    darkest_LCX = 0
-    darkest_LCY = 0
-    darkest_B7 = 999999
-    mean_B7 = 999999
-    # Tracks kernel across image:
-    # while
-    while left_corner_y < (image_y_size - kernel_size):
-        while left_corner_x < (image_x_size - kernel_size):
-            # Populates kernel and calculates mean:
-            kernel[0:kernel_size, 0:kernel_size] = image_array[left_corner_y:(left_corner_y + kernel_size), left_corner_x:(left_corner_x + kernel_size)]
-            if np.all(kernel[:, :] > 0):
-                mean_B7 = np.average(kernel)
-                # print mean_B7
-                # print 'dark',darkest_B7
-                if mean_B7 < darkest_B7:
-                    darkest_B7 = mean_B7
-                    darkest_LCX = left_corner_x
-                    darkest_LCY = left_corner_y
-                    # Ticks up the left corner position
-            left_corner_x = left_corner_x + kernel_size
-        left_corner_x = 0  # Resets us back to the left of the image after completing the row.
-        left_corner_y = left_corner_y + kernel_size
-    kernelLandsatDict = {"darkestmean": darkest_B7, "lcy": darkest_LCY, "lcx": darkest_LCX, "kernelsize": kernel_size}
-    return kernelLandsatDict
-
-def deep_kernel_S2(imagefile, kernelsize):
-    '''Opens the raster file as an array, creates a kernel and evaluates the kernel on the image file it's given.'''
-    # find and return bandname
-    imagefilename = imagefile
-    imagery = gdal.Open(imagefilename)
-    image_array = np.array(imagery.GetRasterBand(1).ReadAsArray())
-    # Defines kernel size:
-    kernel_size = kernelsize
-    # print 'Kernel size =', kernel_size
-    # Calculates the size of the image array:
-    image_array_shape = image_array.shape
-    image_x_size = image_array_shape[1]
-    image_y_size = image_array_shape[0]
-    # print 'x size =', image_x_size
-    # print 'y size =', image_y_size
-
-    # Creates processing kernel and
-    kernel = np.zeros((kernel_size, kernel_size))
-
-    # Setting starting point for left corner
-    left_corner_x = 0
-    left_corner_y = 0
-
-    # Defining LC value & B7_mean for beginning
-    darkest_LCX = 0
-    darkest_LCY = 0
-    darkest_B11 = 999999
-    mean_B11 = 999999
-    # Tracks kernel across image:
-    # while
-    while left_corner_y < (image_y_size - kernel_size):
-        while left_corner_x < (image_x_size - kernel_size):
-            # Populates kernel and calculates mean:
-            kernel[0:kernel_size, 0:kernel_size] = image_array[left_corner_y:(left_corner_y + kernel_size),
-                                                   left_corner_x:(left_corner_x + kernel_size)]
-            if np.all(kernel[:, :] > 0):
-                mean_B11 = np.average(kernel)
-                # print mean_B7
-                # print 'dark',darkest_B7
-                if mean_B11 < darkest_B11:
-                    darkest_B11 = mean_B11
-                    darkest_LCX = left_corner_x
-                    darkest_LCY = left_corner_y
-                    # Ticks up the left corner position
-            left_corner_x = left_corner_x + kernel_size
-        left_corner_x = 0  # Resets us back to the left of the image after completing the row.
-        left_corner_y = left_corner_y + kernel_size
-    kernel_dict_S2 = {"darkestmean": darkest_B11, "lcy": darkest_LCY, "lcx": darkest_LCX, "kernelsize": kernel_size}
-    return kernel_dict_S2
-
-#Not running yet - need to determine which band calibration to use.
-def deep_kernel_WV2(nir1dict, kernelsize):
-    '''Opens the raster file as an array, creates a kernel and evaluates the kernel on the image file it's given.'''
-    # find and return bandname
-    imagefilename = nir1dict['filename']
-    imagery = gdal.Open(imagefilename)
-    image_array = np.array(imagery.GetRasterBand(1).ReadAsArray())
-    # Defines kernel size:
-    kernel_size = kernelsize
-    # print 'Kernel size =', kernel_size
-    # Calculates the size of the image array:
-    image_array_shape = image_array.shape
-    image_x_size = image_array_shape[1]
-    image_y_size = image_array_shape[0]
-    # print 'x size =', image_x_size
-    # print 'y size =', image_y_size
-
-    # Creates processing kernel and
-    kernel = np.zeros((kernel_size, kernel_size))
-
-    # Setting starting point for left corner
-    left_corner_x = 0
-    left_corner_y = 0
-
-    # Defining LC value & nir1_mean for beginning
-    #Not the correct bands
-    darkest_LCX = 0
-    darkest_LCY = 0
-    darkest_nir1 = 999999
-    mean_nir1 = 999999
-    # Tracks kernel across image:
-    # while
-    while left_corner_y < (image_y_size - kernel_size):
-        while left_corner_x < (image_x_size - kernel_size):
-            # Populates kernel and calculates mean:
-            kernel[0:kernel_size, 0:kernel_size] = image_array[left_corner_y:(left_corner_y + kernel_size),
-                                                   left_corner_x:(left_corner_x + kernel_size)]
-            if np.all(kernel[:, :] > 0):
-                mean_nir1 = np.average(kernel)
-                # print mean_nir1
-                # print 'dark',darkest_nir1
-                if mean_nir1 < darkest_nir1:
-                    darkest_nir11 = mean_nir1
-                    darkest_LCX = left_corner_x
-                    darkest_LCY = left_corner_y
-                    # Ticks up the left corner position
-            left_corner_x = left_corner_x + kernel_size
-        left_corner_x = 0  # Resets us back to the left of the image after completing the row.
-        left_corner_y = left_corner_y + kernel_size
-    kernel_dict_WV2 = {"darkestmean": darkest_nir1, "lcy": darkest_LCY, "lcx": darkest_LCX, "kernelsize": kernel_size}
-    return kernel_dict_WV2
-
-##### Transform that ratio! #####
-'''Part 2 performs ln ratio algorithm and returns initial plot of data'''
-
-def log_value(array):
-    '''Calculates the logarithm for an array.'''
-    log_value = np.log(array)
-    inf = np.isinf(log_value)
-    log_value[inf] = 0
-
-    return log_value
-
-def multipleLinearRegression(coastaldict, bluedict, greendict, reddict, readshp_dict,
+def randomForestRegression(coastaldict, bluedict, greendict, reddict, readshp_dict,
                                 fieldname, outputfolder):
-    '''Creates the multiple linear regression method using the coastal, blue, green, and red bands as inputs.'''
+    '''Creates the random forest machine learning method using the coastal, blue, green, and red bands as inputs.'''
     #  Open the blue band
     coastal_image = gdal.Open(coastaldict['filename'])
     coastal_band = coastal_image.GetRasterBand(1)
@@ -898,55 +699,65 @@ def multipleLinearRegression(coastaldict, bluedict, greendict, reddict, readshp_
     green_values = np.asarray(green_values)
     red_values = np.asarray(red_values)
 
-    # Find deep-water values for all bands
-    deep_water = np.percentile(depth_values, 95)
-    deep_water_index = np.where(depth_values > deep_water, 1, 0)
-
-    deep_coastal = np.sum(deep_water_index*coastal_values) / sum(deep_water_index)
-    deep_blue = np.sum(deep_water_index * blue_values) / sum(deep_water_index)
-    deep_green = np.sum(deep_water_index * green_values) / sum(deep_water_index)
-    deep_red = np.sum(deep_water_index * red_values) / sum(deep_water_index)
-
-    coastal_log = np.log(coastal_values - deep_coastal)
-    blue_log = np.log(blue_values - deep_blue)
-    green_log = np.log(green_values - deep_green)
-    red_log = np.log(red_values - deep_red)
-
-    good_values = np.where(~np.isnan(coastal_log + blue_log + green_log + red_log), 1, 0) # Those that are not nan in any array
-    good_coastal_log = coastal_log[good_values == 1]
-    good_blue_log = blue_log[good_values == 1]
-    good_green_log = green_log[good_values == 1]
-    good_red_log = red_log[good_values == 1]
+    # Get test data to train machine learning model with
+    good_values = np.where(~np.isnan(coastal_values + blue_values + green_values + red_values), 1, 0) # Those that are not nan in any array
+    good_coastal_values = coastal_values[good_values == 1]
+    good_blue_values = blue_values[good_values == 1]
+    good_green_values = green_values[good_values == 1]
+    good_red_values = red_values[good_values == 1]
     good_depth_values = depth_values[good_values == 1]
 
-    X = np.transpose(np.array([good_coastal_log, good_blue_log, good_green_log, good_red_log]))
-    multiband = LinearRegression()
-    multiband.fit(X, good_depth_values)
+    #df = np.transpose(np.array([good_coastal_values, good_blue_values, good_green_values,
+     #                                                 good_red_values]))
+    #X_train, X_test, y_train, y_test = train_test_split(df, good_depth_values, train_size=0.5, random_state=42)
 
-    # Make predictions
-    coastalval = np.log(coastal_band.ReadAsArray() - deep_coastal)
-    blueval = np.log(blue_band.ReadAsArray() - deep_blue)
-    greenval = np.log(green_band.ReadAsArray() - deep_green)
-    redval = np.log(red_band.ReadAsArray() - deep_red)
+    #lab_enc = preprocessing.LabelEncoder()
+    #encoded = lab_enc.fit_transform(y_train)
+    #rf_reg = RandomForestRegressor(n_jobs=4, n_estimators=10)
+    #rf_reg.fit(X_train, y_train)
 
-
-    for_prediction = np.transpose(np.array([coastalval.flatten(), blueval.flatten(), greenval.flatten(), redval.flatten()]))
+    for_prediction = np.transpose(np.array([good_coastal_values.flatten(), good_blue_values.flatten(),
+                                            good_green_values.flatten(), good_red_values.flatten()]))
 
     goodval = np.sum(for_prediction, axis=1)
-    good_coastalval = np.where(~np.isnan(goodval), coastalval.flatten(), 0)
-    good_blueval = np.where(~np.isnan(goodval), blueval.flatten(), 0)
-    good_greenval = np.where(~np.isnan(goodval), greenval.flatten(), 0)
-    good_redval = np.where(~np.isnan(goodval), redval.flatten(), 0)
+    good_coastalval = np.where(~np.isnan(goodval), good_coastal_values.flatten(), 0)
+    good_blueval = np.where(~np.isnan(goodval), good_blue_values.flatten(), 0)
+    good_greenval = np.where(~np.isnan(goodval), good_green_values.flatten(), 0)
+    good_redval = np.where(~np.isnan(goodval), good_red_values.flatten(), 0)
 
-    for_prediction = np.transpose(
+    df = np.transpose(
         np.array([good_coastalval, good_blueval, good_greenval, good_redval]))
+    X_train, X_test, y_train, y_test = train_test_split(df, good_depth_values, train_size=0.5, random_state=42)
+    rf_reg = RandomForestRegressor(n_jobs=4, n_estimators=100)
+    rf_reg.fit(X_train, y_train)
 
-    predicted = multiband.predict(for_prediction)
-    predicted_2d = predicted.reshape(coastalval.shape[0], coastalval.shape[1])
+
+    ### OLD VERSION ###
+    # Make predictions
+    #rf_predicted = rf_reg.predict(X_test)
+    #predicted_2d = rf_predicted.reshape(good_coastal_values.shape[0], good_coastal_values.shape[1])
 
     # Remove NAN predictions (that are not currently NAN
-    value_to_remove = multiband.predict(np.array([[0, 0, 0, 0]]))
+    #value_to_remove = rf_reg.predict(np.array([[0, 0, 0, 0]]))
+    #predicted_2d_clean = np.where(rf_predicted == value_to_remove, 0, rf_predicted)
+    ###################
+
+    ### NEW VERSION BY ANDERS ###
+    ### WHO IS THE BOMB DOT COM ###
+    coastalarray = coastal_band.ReadAsArray()
+    bluearray = blue_band.ReadAsArray()
+    greenarray = green_band.ReadAsArray()
+    redarray = red_band.ReadAsArray()
+
+    all_arrays_flattened = np.transpose(np.array([coastalarray.flatten(), bluearray.flatten(), greenarray.flatten(), redarray.flatten()]))
+    rf_predicted = rf_reg.predict(all_arrays_flattened)
+    predicted_2d = rf_predicted.reshape(coastalarray.shape[0], coastalarray.shape[1])
+
+    # Note, this is not a great way to find out what values are predicted from pixels that have NoData in them. Should be improved. Not even sure it works at this point.
+    value_to_remove = rf_reg.predict(np.array([[-0.1, -0.1, -0.1, -0.1]]))
     predicted_2d_clean = np.where(predicted_2d == value_to_remove, 0, predicted_2d)
+    #value_to_remove = scipy.stats.mode(rf_predicted)
+    #predicted_2d_clean = np.where(predicted_2d == value_to_remove, 0, predicted_2d)
 
     #close all the open files from finding best n so can re-open them to perform the actual function.
     coastal_image = None
@@ -961,30 +772,28 @@ def multipleLinearRegression(coastaldict, bluedict, greendict, reddict, readshp_
     red_image = None
     red_band = None
     redval = None
-    swir_image = None
-    swir_band = None
-    swirval = None
+
 
     #  Create the raster file
-    multiband_filename = outputfolder + "/" + "multiband.tif"
-    multiband_bandname = "multiband.tif"
+    rf_filename = outputfolder + "/" + "random_forest.tif"
+    rf_bandname = "random_forest.tif"
     raster_driver = gdal.GetDriverByName("GTiff")
-    multiband_dataset = raster_driver.Create(multiband_filename, bluedict['xsize'], bluedict['ysize'],
+    rf_dataset = raster_driver.Create(rf_filename, bluedict['xsize'], bluedict['ysize'],
                                               1, gdal.GDT_Float32)
-    multiband_dataset.SetGeoTransform(bluedict['geotransform'])
-    multiband_dataset.SetProjection(bluedict['projection'])
-    band = multiband_dataset.GetRasterBand(1)
+    rf_dataset.SetGeoTransform(bluedict['geotransform'])
+    rf_dataset.SetProjection(bluedict['projection'])
+    band = rf_dataset.GetRasterBand(1)
     band.WriteArray(predicted_2d_clean)
-    multiband_dataset = None
-    multiband_dict = {"bandname": multiband_bandname, 'filename': multiband_filename, "multiband_log":
+    rf_dataset = None
+    randomForest_dict = {"bandname": rf_bandname, "filename": rf_filename, "random_forest":
                         predicted_2d_clean, "geotransform": bluedict['geotransform'], "projection":
                         bluedict['projection']}
 
-    return multiband_dict
+    return randomForest_dict
 
-def multipleLinearRegression_WV2(coastaldict, bluedict, greendict, yellowdict, reddict, readshp_dict,
+def randomForestRegression_S2(coastaldict, bluedict, greendict, reddict, readshp_dict,
                                 fieldname, outputfolder):
-    '''Creates the multiple linear regression method using the coastal, blue, green, and red bands as inputs.'''
+    '''Creates the random forest machine learning method using the coastal, blue, green, and red bands as inputs.'''
     #  Open the blue band
     coastal_image = gdal.Open(coastaldict['filename'])
     coastal_band = coastal_image.GetRasterBand(1)
@@ -1002,9 +811,167 @@ def multipleLinearRegression_WV2(coastaldict, bluedict, greendict, yellowdict, r
     red_image = gdal.Open(reddict['filename'])
     red_band = red_image.GetRasterBand(1)
 
+    coastal_values = []
+    blue_values = []
+    green_values = []
+    depth_values = []
+    red_values = []
+
+    #Open shapefile to get depths data
+    shp_driver = ogr.GetDriverByName('ESRI Shapefile')
+    ds = shp_driver.Open(readshp_dict['shpfilename'], 0)
+    if shp_driver is None:
+        sys.exit("Could not open depth file.")
+    else:
+        lyr = ds.GetLayer()
+        lyrDefn = lyr.GetLayerDefn()
+        nfields = lyrDefn.GetFieldCount()
+        for i in range(nfields):
+            fieldDefn = lyrDefn.GetFieldDefn(i)
+            fieldName = fieldDefn.GetName()
+            if fieldName == fieldname:  # Ask for this fieldname under plugins instruction
+                break
+        for feat in lyr:
+            # Find all values in depth, blue and green datasets, append to lists.
+            depth = feat.GetField(i)
+            geom = feat.GetGeometryRef()
+            x, y = geom.GetX(), geom.GetY()  # gets coordinates in the map units
+            px = int((x - gt[0]) / gt[1])
+            py = int((y - gt[3]) / gt[5])
+
+            #print depth, geom, x, y, px, py
+            coastalval = coastal_band.ReadAsArray(px, py, 1, 1)[0][0]
+            blueval = blue_band.ReadAsArray(px, py, 1, 1)[0][0]
+            greenval = green_band.ReadAsArray(px, py, 1, 1)[0][0]
+            redval = red_band.ReadAsArray(px, py, 1, 1)[0][0]
+
+            depth_values.append(depth)
+            coastal_values.append(coastalval)
+            blue_values.append(blueval)
+            green_values.append(greenval)
+            red_values.append(redval)
+
+
+    depth_values = np.asarray(depth_values)
+    coastal_values = np.asarray(coastal_values)
+    blue_values = np.asarray(blue_values)
+    green_values = np.asarray(green_values)
+    red_values = np.asarray(red_values)
+
+    # Get test data to train machine learning model with
+    good_values = np.where(~np.isnan(coastal_values + blue_values + green_values + red_values), 1, 0) # Those that are not nan in any array
+    good_coastal_values = coastal_values[good_values == 1]
+    good_blue_values = blue_values[good_values == 1]
+    good_green_values = green_values[good_values == 1]
+    good_red_values = red_values[good_values == 1]
+    good_depth_values = depth_values[good_values == 1]
+
+    X = np.transpose(np.array([good_coastal_values.flatten(), good_blue_values.flatten(),
+                                            good_green_values.flatten(), good_red_values.flatten()]))
+
+    goodval = np.sum(X, axis=1)
+    good_coastalval = np.where(~np.isnan(goodval), good_coastal_values.flatten(), 0)
+    good_blueval = np.where(~np.isnan(goodval), good_blue_values.flatten(), 0)
+    good_greenval = np.where(~np.isnan(goodval), good_green_values.flatten(), 0)
+    good_redval = np.where(~np.isnan(goodval), good_red_values.flatten(), 0)
+
+    df = np.transpose(
+        np.array([good_coastalval, good_blueval, good_greenval, good_redval]))
+    X_train, X_test, y_train, y_test = train_test_split(df, good_depth_values, train_size=0.5, random_state=42)
+    rf_reg = RandomForestRegressor(n_jobs=4, n_estimators=100)
+    rf_reg.fit(X_train, y_train)
+
+
+    ### OLD VERSION ###
+    # Make predictions
+    #rf_predicted = rf_reg.predict(X_test)
+    #predicted_2d = rf_predicted.reshape(good_coastal_values.shape[0], good_coastal_values.shape[1])
+
+    # Remove NAN predictions (that are not currently NAN
+    #value_to_remove = rf_reg.predict(np.array([[0, 0, 0, 0]]))
+    #predicted_2d_clean = np.where(rf_predicted == value_to_remove, 0, rf_predicted)
+    ###################
+
+    ### NEW VERSION BY ANDERS ###
+    ### WHO IS THE BOMB DOT COM ###
+    coastalarray = coastal_band.ReadAsArray()
+    bluearray = blue_band.ReadAsArray()
+    greenarray = green_band.ReadAsArray()
+    redarray = red_band.ReadAsArray()
+
+    all_arrays_flattened = np.transpose(np.array([coastalarray.flatten(), bluearray.flatten(), greenarray.flatten(), redarray.flatten()]))
+    new_goodval = np.sum(all_arrays_flattened, axis=1)
+    new_good_coastalval = np.where(~np.isnan(new_goodval), coastalarray.flatten(), 0)
+    new_good_blueval = np.where(~np.isnan(new_goodval), bluearray.flatten(), 0)
+    new_good_greenval = np.where(~np.isnan(new_goodval), greenarray.flatten(), 0)
+    new_good_redval = np.where(~np.isnan(new_goodval), redarray.flatten(), 0)
+
+    for_prediction = np.transpose(
+        np.array([new_good_coastalval, new_good_blueval, new_good_greenval, new_good_redval]))
+    rf_predicted = rf_reg.predict(for_prediction)
+    predicted_2d = rf_predicted.reshape(coastalarray.shape[0], coastalarray.shape[1])
+
+    # Note, this is not a great way to find out what values are predicted from pixels that have NoData in them. Should be improved. Not even sure it works at this point.
+    value_to_remove = rf_reg.predict(np.array([[0, 0, 0, 0]]))
+    predicted_2d_clean = np.where(predicted_2d == value_to_remove, 0, predicted_2d)
+    #value_to_remove = scipy.stats.mode(rf_predicted)
+    #predicted_2d_clean = np.where(predicted_2d == value_to_remove, 0, predicted_2d)
+
+    #close all the open files from finding best n so can re-open them to perform the actual function.
+    coastal_image = None
+    coastal_band = None
+    coastalval = None
+    blue_image = None
+    blue_band = None
+    blueval = None
+    green_image = None
+    green_band = None
+    greenval = None
+    red_image = None
+    red_band = None
+    redval = None
+
+
+    #  Create the raster file
+    rf_filename = outputfolder + "/" + "random_forest.tif"
+    rf_bandname = "random_forest.tif"
+    raster_driver = gdal.GetDriverByName("GTiff")
+    rf_dataset = raster_driver.Create(rf_filename, bluedict['xsize'], bluedict['ysize'],
+                                              1, gdal.GDT_Float32)
+    rf_dataset.SetGeoTransform(bluedict['geotransform'])
+    rf_dataset.SetProjection(bluedict['projection'])
+    band = rf_dataset.GetRasterBand(1)
+    band.WriteArray(predicted_2d_clean)
+    multiband_dataset = None
+    randomForest_dict = {"bandname": rf_bandname, 'filename': rf_filename, "random_forest":
+                        predicted_2d_clean, "geotransform": bluedict['geotransform'], "projection":
+                        bluedict['projection']}
+
+    return randomForest_dict
+
+def randomForestRegression_WV2(coastaldict, bluedict, greendict, yellowdict, reddict, readshp_dict,
+                                fieldname, outputfolder):
+    '''Creates the multiple linear regression method using the coastal, blue, green, and red bands as inputs.'''
+    #  Open the blue band
+    coastal_image = gdal.Open(coastaldict['filename'])
+    coastal_band = coastal_image.GetRasterBand(1)
+    gt = coastal_image.GetGeoTransform()
+
+    #  Open the blue band
+    blue_image = gdal.Open(bluedict['filename'])
+    blue_band = blue_image.GetRasterBand(1)
+
+    #  Open the green band
+    green_image = gdal.Open(greendict['filename'])
+    green_band = green_image.GetRasterBand(1)
+
     #  Open the green band
     yellow_image = gdal.Open(yellowdict['filename'])
     yellow_band = yellow_image.GetRasterBand(1)
+
+    #  Open the green band
+    red_image = gdal.Open(reddict['filename'])
+    red_band = red_image.GetRasterBand(1)
 
     coastal_values = []
     blue_values = []
@@ -1054,62 +1021,56 @@ def multipleLinearRegression_WV2(coastaldict, bluedict, greendict, yellowdict, r
     coastal_values = np.asarray(coastal_values)
     blue_values = np.asarray(blue_values)
     green_values = np.asarray(green_values)
-    red_values = np.asarray(red_values)
     yellow_values = np.asarray(yellow_values)
+    red_values = np.asarray(red_values)
 
-    # Find deep-water values for all bands
-    deep_water = np.percentile(depth_values, 95)
-    deep_water_index = np.where(depth_values > deep_water, 1, 0)
-
-    deep_coastal = np.sum(deep_water_index*coastal_values) / sum(deep_water_index)
-    deep_blue = np.sum(deep_water_index * blue_values) / sum(deep_water_index)
-    deep_green = np.sum(deep_water_index * green_values) / sum(deep_water_index)
-    deep_red = np.sum(deep_water_index * red_values) / sum(deep_water_index)
-    deep_yellow = np.sum(deep_water_index * yellow_values) / sum(deep_water_index)
-
-    coastal_log = np.log(coastal_values - deep_coastal)
-    blue_log = np.log(blue_values - deep_blue)
-    green_log = np.log(green_values - deep_green)
-    red_log = np.log(red_values - deep_red)
-    yellow_log = np.log(yellow_values - deep_yellow)
-
-    good_values = np.where(~np.isnan(coastal_log + blue_log + green_log + red_log + yellow_log), 1, 0) # Those that are not nan in any array
-    good_coastal_log = coastal_log[good_values == 1]
-    good_blue_log = blue_log[good_values == 1]
-    good_green_log = green_log[good_values == 1]
-    good_red_log = red_log[good_values == 1]
-    good_yellow_log = yellow_log[good_values == 1]
+    # Get test data to train machine learning model with
+    good_values = np.where(~np.isnan(coastal_values + blue_values + green_values + yellow_values + red_values), 1, 0) # Those that are not nan in any array
+    good_coastal_values = coastal_values[good_values == 1]
+    good_blue_values = blue_values[good_values == 1]
+    good_green_values = green_values[good_values == 1]
+    good_red_values = red_values[good_values == 1]
+    good_yellow_values = yellow_values[good_values == 1]
     good_depth_values = depth_values[good_values == 1]
 
-    X = np.transpose(np.array([good_coastal_log, good_blue_log, good_green_log, good_red_log, good_yellow_log]))
-    multiband = LinearRegression()
-    multiband.fit(X, good_depth_values)
+    X = np.transpose(np.array([good_coastal_values.flatten(), good_blue_values.flatten(), good_green_values.flatten(),
+                               good_yellow_values.flatten(), good_red_values.flatten()]))
+    goodval = np.sum(X, axis=1)
+    good_coastalval = np.where(~np.isnan(goodval), good_coastal_values.flatten(), 0)
+    good_blueval = np.where(~np.isnan(goodval), good_blue_values.flatten(), 0)
+    good_greenval = np.where(~np.isnan(goodval), good_green_values.flatten(), 0)
+    good_yellowval = np.where(~np.isnan(goodval), good_yellow_values.flatten(), 0)
+    good_redval = np.where(~np.isnan(goodval), good_red_values.flatten(), 0)
+
+    df = np.transpose(
+        np.array([good_coastalval, good_blueval, good_greenval, good_yellowval, good_redval]))
+    X_train, X_test, y_train, y_test = train_test_split(df, good_depth_values, train_size=0.5, random_state=42)
+    rf_reg = RandomForestRegressor(n_jobs=4, n_estimators=100)
+    rf_reg.fit(X_train, y_train)
 
     # Make predictions
-    coastalval = np.log(coastal_band.ReadAsArray() - deep_coastal)
-    blueval = np.log(blue_band.ReadAsArray() - deep_blue)
-    greenval = np.log(green_band.ReadAsArray() - deep_green)
-    redval = np.log(red_band.ReadAsArray() - deep_red)
-    yellowval = np.log(yellow_band.ReadAsArray() - deep_yellow)
+    coastalarray = coastal_band.ReadAsArray()
+    bluearray = blue_band.ReadAsArray()
+    greenarray = green_band.ReadAsArray()
+    yellowarray = yellow_band.ReadAsArray()
+    redarray = red_band.ReadAsArray()
 
-    for_prediction = np.transpose(np.array([coastalval.flatten(), blueval.flatten(), greenval.flatten(),
-                                            redval.flatten(), yellowval.flatten()]))
-
-    goodval = np.sum(for_prediction, axis=1)
-    good_coastalval = np.where(~np.isnan(goodval), coastalval.flatten(), 0)
-    good_blueval = np.where(~np.isnan(goodval), blueval.flatten(), 0)
-    good_greenval = np.where(~np.isnan(goodval), greenval.flatten(), 0)
-    good_redval = np.where(~np.isnan(goodval), redval.flatten(), 0)
-    good_yellowval = np.where(~np.isnan(goodval), yellowval.flatten(), 0)
+    all_arrays_flattened = np.transpose(np.array([coastalarray.flatten(), bluearray.flatten(), greenarray.flatten(), redarray.flatten()]))
+    new_goodval = np.sum(all_arrays_flattened, axis=1)
+    new_good_coastalval = np.where(~np.isnan(new_goodval), coastalarray.flatten(), 0)
+    new_good_blueval = np.where(~np.isnan(new_goodval), bluearray.flatten(), 0)
+    new_good_greenval = np.where(~np.isnan(new_goodval), greenarray.flatten(), 0)
+    new_good_yellowval = np.where(~np.isnan(new_goodval), yellowarray.flatten(), 0)
+    new_good_redval = np.where(~np.isnan(new_goodval), redarray.flatten(), 0)
 
     for_prediction = np.transpose(
-        np.array([good_coastalval, good_blueval, good_greenval, good_redval, good_yellowval]))
+        np.array([new_good_coastalval, new_good_blueval, new_good_greenval, new_good_yellowval, new_good_redval]))
 
-    predicted = multiband.predict(for_prediction)
-    predicted_2d = predicted.reshape(coastalval.shape[0], coastalval.shape[1])
+    predicted = rf_reg.predict(for_prediction)
+    predicted_2d = predicted.reshape(coastalarray.shape[0], coastalarray.shape[1])
 
     # Remove NAN predictions (that are not currently NAN
-    value_to_remove = multiband.predict(np.array([[0, 0, 0, 0, 0]]))
+    value_to_remove = rf_reg.predict(np.array([[0, 0, 0, 0, 0]]))
     predicted_2d_clean = np.where(predicted_2d == value_to_remove, 0, predicted_2d)
 
     #close all the open files from finding best n so can re-open them to perform the actual function.
@@ -1130,93 +1091,21 @@ def multipleLinearRegression_WV2(coastaldict, bluedict, greendict, yellowdict, r
     yellowval = None
 
     #  Create the raster file
-    multiband_filename = outputfolder + "/" + "multiband.tif"
-    multiband_bandname = "multiband.tif"
+    rf_filename = outputfolder + "/" + "random_forest.tif"
+    rf_bandname = "random_forest.tif"
     raster_driver = gdal.GetDriverByName("GTiff")
-    multiband_dataset = raster_driver.Create(multiband_filename, bluedict['xsize'], bluedict['ysize'],
+    rf_dataset = raster_driver.Create(rf_filename, bluedict['xsize'], bluedict['ysize'],
                                               1, gdal.GDT_Float32)
-    multiband_dataset.SetGeoTransform(bluedict['geotransform'])
-    multiband_dataset.SetProjection(bluedict['projection'])
-    band = multiband_dataset.GetRasterBand(1)
+    rf_dataset.SetGeoTransform(bluedict['geotransform'])
+    rf_dataset.SetProjection(bluedict['projection'])
+    band = rf_dataset.GetRasterBand(1)
     band.WriteArray(predicted_2d_clean)
-    multiband_dataset = None
-    multiband_dict_WV2 = {"bandname": multiband_bandname, 'filename': multiband_filename, "multiband_log":
+    rf_dataset = None
+    randomForest_dict_WV2 = {"bandname": rf_bandname, 'filename': rf_filename, "random_forest":
                         predicted_2d_clean, "geotransform": bluedict['geotransform'], "projection":
                         bluedict['projection']}
 
-    return multiband_dict_WV2
-
-def mutliband_kernel_landsat(multiband_logarray, kernelLandsatDict):
-    '''Uses the deep kernel found and evaluates it in the division array so we obtain a standard deviation
-    for the kernel, and a mean value'''
-    imagefilename = multiband_logarray['filename']
-    imagery = gdal.Open(imagefilename)
-    image_array = np.array(imagery.GetRasterBand(1).ReadAsArray())
-    left_corner_y = kernelLandsatDict['lcy']
-    left_corner_x = kernelLandsatDict['lcx']
-    kernel_size = kernelLandsatDict['kernelsize']
-    kernel = np.zeros((kernel_size, kernel_size))
-    kernel[0:kernel_size, 0:kernel_size] = image_array[left_corner_y:(left_corner_y + kernel_size),
-                                           left_corner_x:(left_corner_x + kernel_size)]
-    #  Get the kernels standard deviation
-    if np.all(kernel[:, :] > 0):
-        stdev = np.std(kernel)
-    #  Get the kernels mean
-        multiband_mean = np.mean(kernel)
-        multiband_max = np.max(kernel)
-        multiband_min = np.min(kernel)
-
-    bgk = {"std": stdev, "mean": multiband_mean, "mid": kernel[(kernel_size/2), (kernel_size/2)], "max": multiband_max,
-           "min": multiband_min}
-    return bgk
-
-def multiband_kernel_S2(multiband_logarray, kernel_dict_S2):
-    '''Uses the deep kernel found and evaluates it in the division array so we obtain a standard deviation
-    for the kernel, and a mean value'''
-    imagefilename = multiband_logarray['filename']
-    imagery = gdal.Open(imagefilename)
-    image_array = np.array(imagery.GetRasterBand(1).ReadAsArray())
-    left_corner_y = kernel_dict_S2['lcy']
-    left_corner_x = kernel_dict_S2['lcx']
-    kernel_size = kernel_dict_S2['kernelsize']
-    kernel = np.zeros((kernel_size, kernel_size))
-    kernel[0:kernel_size, 0:kernel_size] = image_array[left_corner_y:(left_corner_y + kernel_size),
-                                           left_corner_x:(left_corner_x + kernel_size)]
-    #  Get the kernels standard deviation
-    if np.all(kernel[:, :] > 0):
-        stdev = np.std(kernel)
-    #  Get the kernels mean
-        multiband_mean = np.mean(kernel)
-        multiband_max = np.max(kernel)
-        multiband_min = np.min(kernel)
-
-    bgk = {"std": stdev, "mean": multiband_mean, "mid": kernel[(kernel_size/2), (kernel_size/2)], "max": multiband_max,
-           "min": multiband_min}
-    return bgk
-
-def multiband_kernel_WV2(bluegreen_logarray, kernel_dict_WV2):
-    '''Uses the deep kernel found and evaluates it in the division array so we obtain a standard deviation
-    for the kernel, and a mean value'''
-    imagefilename = bluegreen_logarray['filename']
-    imagery = gdal.Open(imagefilename)
-    image_array = np.array(imagery.GetRasterBand(1).ReadAsArray())
-    left_corner_y = kernel_dict_WV2['lcy']
-    left_corner_x = kernel_dict_WV2['lcx']
-    kernel_size = kernel_dict_WV2['kernelsize']
-    kernel = np.zeros((kernel_size, kernel_size))
-    kernel[0:kernel_size, 0:kernel_size] = image_array[left_corner_y:(left_corner_y + kernel_size),
-                                           left_corner_x:(left_corner_x + kernel_size)]
-    #  Get the kernels standard deviation
-    if np.all(kernel[:, :] > 0):
-        stdev = np.std(kernel)
-    #  Get the kernels mean
-        bluegreen_mean = np.mean(kernel)
-        bluegreen_max = np.max(kernel)
-        bluegreen_min = np.min(kernel)
-
-    bgk = {"std": stdev, "mean": bluegreen_mean, "mid": kernel[(kernel_size/2), (kernel_size/2)], "max": bluegreen_max,
-           "min": bluegreen_min}
-    return bgk
+    return randomForest_dict_WV2
 
 def read_shp(shpfilename):
     '''Reads and opens the shape file.'''
@@ -1283,7 +1172,7 @@ def extract_raster_shp_L8(readshp_dict, raster_dict_L8, fieldname):
     bandArray = band.ReadAsArray(0, 0, raster_dict_L8['xsize'], raster_dict_L8['ysize'])
     maxR = len(bandArray)
     maxC = len(bandArray[0])
-    multi = []
+    rf_vals = []
     '''Returns a list with the image_array of depth for the shape file'''
     layerDefn = readshp_dict['layer'].GetLayerDefn()
     nfields = layerDefn.GetFieldCount()
@@ -1315,14 +1204,14 @@ def extract_raster_shp_L8(readshp_dict, raster_dict_L8, fieldname):
         row = int((uly - y) / yres) * (-1)
         if col < maxC and row <= maxR:
             #  extract value
-            bandValue = float(bandArray[row, col])  # Can we work with floats?
+            bandValue = float(bandArray[row, col])
             if not np.isnan(bandValue):
                 depth = feature.GetField(i)
                 depth_value.append(depth)
-                multi.append(bandValue)
+                rf_vals.append(bandValue)
     readshp_dict['shpds'] = None
     raster_dict_L8['rasterds'] = None
-    extract_dict_landsat = {"depths": depth_value, "multi": multi}
+    extract_dict_landsat = {"depths": depth_value, "rf_vals": rf_vals}
     return extract_dict_landsat
 
 def extract_raster_shp_S2(readshp_dict, toa_dict_S2, fieldname):
@@ -1332,7 +1221,7 @@ def extract_raster_shp_S2(readshp_dict, toa_dict_S2, fieldname):
     bandArray = band.ReadAsArray(0, 0, toa_dict_S2['xsize'], toa_dict_S2['ysize'])
     maxR = len(bandArray)
     maxC = len(bandArray[0])
-    multi = []
+    rf_vals = []
     #Returns a list with the values of depth for the shape file
     layerDefn = readshp_dict['layer'].GetLayerDefn()
     nfields = layerDefn.GetFieldCount()
@@ -1368,73 +1257,24 @@ def extract_raster_shp_S2(readshp_dict, toa_dict_S2, fieldname):
             if not np.isnan(bandValue):
                 depth = feature.GetField(i)
                 depth_value.append(depth)
-                multi.append(bandValue)
+                rf_vals.append(bandValue)
     readshp_dict['shpds'] = None
     toa_dict_S2['rasterds'] = None
-    extract_dict_S2 = {"depths": depth_value, "multi": multi}
+    extract_dict_S2 = {"depths": depth_value, "rf_vals": rf_vals}
     return extract_dict_S2
-
-def extract_raster_shp_WV2(readshp_dict, toa_dict_WV2, fieldname):
-    print("Running extract raster shp_WV2...")
-    band = toa_dict_WV2['rasterds'].GetRasterBand(1)
-    print("Successfully accessed toa_dict_WV2[rasterds])")
-    bandArray = band.ReadAsArray(0, 0, toa_dict_WV2['xsize'], toa_dict_WV2['ysize'])
-    maxR = len(bandArray)
-    maxC = len(bandArray[0])
-    multi = []
-    #Returns a list with the values of depth for the shape file
-    layerDefn = readshp_dict['layer'].GetLayerDefn()
-    nfields = layerDefn.GetFieldCount()
-    for i in range(nfields):
-        fieldDefn = layerDefn.GetFieldDefn(i)
-        fieldName = fieldDefn.GetName()
-        fieldWidth = fieldDefn.GetWidth()
-        fieldPrecision = fieldDefn.GetPrecision()
-        fieldTypeCode = fieldDefn.GetType()
-        fieldType = fieldDefn.GetFieldTypeName(fieldTypeCode)
-        if fieldName == fieldname:  # Ask for this fieldname under plugins instruction
-            break
-    depth_value = []
-    #  Get features
-    for k in range(readshp_dict['featurecount']):  # If having a problem could be about the fieldDefn
-        feature = readshp_dict['layer'].GetFeature(k)
-        #  Get x, y coordinates
-        geom = feature.GetGeometryRef()
-        x = geom.GetX()
-        y = geom.GetY()
-
-        ulx = toa_dict_WV2["geotransform"][0]  # x coordinate for upper left corner
-        uly = toa_dict_WV2["geotransform"][3]  # y coordinate for upper lefr corner
-        xres = toa_dict_WV2["geotransform"][1]  # pixel size in the x dimension
-        yres = toa_dict_WV2["geotransform"][5]  # pixel size in the y dimension
-
-        #  Convert x, y coordinates to row, column
-        col = int((x - ulx) / xres)
-        row = int((uly - y) / yres) * (-1)
-        if col < maxC and row <= maxR:
-            #  extract value
-            bandValue = float(bandArray[row, col])  # Can we work with floats?
-            if not np.isnan(bandValue):
-                depth = feature.GetField(i)
-                depth_value.append(depth)
-                multi.append(bandValue)
-    readshp_dict['shpds'] = None
-    toa_dict_WV2['rasterds'] = None
-    extract_dict_WV2 = {"depths": depth_value, "multi": multi}
-    return extract_dict_WV2
 
 def regression_array(extract_rshp_dict):
     '''Creates the regression array with the depth and blue/green logarithm lists.'''
     regressionarray = np.zeros((len(extract_rshp_dict['depths']), 2))
     regressionarray[:, 0] = extract_rshp_dict['depths']
-    regressionarray[:, 1] = extract_rshp_dict['multi']
+    regressionarray[:, 1] = extract_rshp_dict['rf_vals']
     return regressionarray
 
 def plot(scatter_ar, plots, plot_title, outfolder):
     plt.scatter(scatter_ar[:, 1], scatter_ar[:, 0], c='navy', marker='.', label='Data')
     plt.legend(loc='best')
     plt.xlim(0, 5)
-    plt.xlabel('Multiband Algorithm')
+    plt.xlabel('Random Forest Regression')
     plt.ylabel('Depth (m)')
     plt.title(plot_title)
     filename = outfolder + "/" + plot_title + ".png"
@@ -1443,9 +1283,9 @@ def plot(scatter_ar, plots, plot_title, outfolder):
     plt_dict = {"filename": filename}
     return plt_dict
 
-def multiband_L8(mtl_filename, shp_filename, depthColName, out_folder):
+def randomForest_L8(mtl_filename, shp_filename, depthColName, out_folder):
     # Get metadata
-    print ("multiband_L8 has been called.")
+    print ("randomForest_L8 has been called.")
 
     # Read metadata for coastal band
     coastalband = read_mtl_landsat(mtl_filename, 1)
@@ -1469,7 +1309,7 @@ def multiband_L8(mtl_filename, shp_filename, depthColName, out_folder):
     read_greenband['rasterds'] = None
 
     # Read metadata for red band
-    redband = read_mtl_landsat(mtl_filename, 3)
+    redband = read_mtl_landsat(mtl_filename, 4)
     read_redband = read_raster_landsat(redband)
     toa_redband = TOA_refl_landsat(redband, read_redband, out_folder)
     #  Close red band
@@ -1489,36 +1329,35 @@ def multiband_L8(mtl_filename, shp_filename, depthColName, out_folder):
     shpdict['shpds'] = None
 
     #  Extract the depth values from the shapefile
-    print ("Now calling multiband_MLR function.")
-    multiband_MLR = multipleLinearRegression(toa_coastalband, toa_blueband, toa_greenband, toa_redband,
-                                             rprj, depthColName, out_folder)
-    print ("Multiple linear regression completed. Now reading image to extract data.")
+    print ("Now calling randomForestClassification function.")
+    rf = randomForestRegression(toa_coastalband, toa_blueband, toa_greenband, toa_redband,
+                                rprj, depthColName, out_folder)
+    print ("Machine learning classification completed. Now reading image to extract data.")
 
-    #  Extract the depths and shape values from the toa bands
-    #  Open the multiband multiple linear regression
-    multiband = read_raster_landsat(multiband_MLR)
+    #  Open the new dataset
+    rf_dataset = read_raster_landsat(rf)
 
     #  Open the reprojected shapefile
     rprjshp = read_shp(rprj['shpfilename'])
-    #  extract the values into a list
-    multiband_values = extract_raster_shp_L8(rprjshp, multiband, depthColName)  # Blue/ Green List
+    #  extract the values from new dataset into a list
+    rf_values = extract_raster_shp_L8(rprjshp, rf_dataset, depthColName)
     #  Create the regression array
-    regr_ar = regression_array(multiband_values)
+    regr_ar = regression_array(rf_values)
     plotlist = []
     # plot the data
     data_plot = plot(regr_ar, plotlist, 'Data', out_folder)
     #  Dictionary
-    multibandDict = {"read_coast": read_coastalband, "coastal_toa": toa_coastalband, "read_blue": read_blueband,
-                     "blue_toa": toa_blueband, "read_green": read_greenband, "green_toa": toa_greenband,
-                     "read_red": read_redband, "red_toa": toa_redband, "multiband_MLR": multiband_MLR,
-                     "rprj_shapefile": rprj['shpfilename'], "multiband_values": multiband_values,
-                     "regression_array": regr_ar, "plot_data": data_plot}
-    multiband = None
-    return multibandDict
+    randomForestDict_L8 = {"read_coast": read_coastalband, "coastal_toa": toa_coastalband, "read_blue": read_blueband,
+                           "blue_toa": toa_blueband, "read_green": read_greenband, "green_toa": toa_greenband,
+                           "read_red": read_redband, "red_toa": toa_redband, "random_forest": rf,
+                           "rprj_shapefile": rprj['shpfilename'], "rf_values": rf_values,
+                           "regression_array": regr_ar, "plot_data": data_plot}
+    rf_dataset = None
+    return randomForestDict_L8
 
-def multiband_S2(mtl_filename, shp_filename, depthColName, out_folder):
+def randomForest_S2(mtl_filename, shp_filename, depthColName, out_folder):
     # Get metadata
-    print ("multiband_S2 has been called.")
+    print ("randomForest_S2 has been called.")
 
     # Read metadata
     metadata = read_mtl_S2(mtl_filename)
@@ -1557,37 +1396,37 @@ def multiband_S2(mtl_filename, shp_filename, depthColName, out_folder):
     print ("User shapefile has been reprojected.")
 
     #  Extract the depth values from the shapefile
-    print ("Now calling multiband_MLR function.")
-    multiband_MLR = multipleLinearRegression(toa_coastalband, toa_blueband, toa_greenband, toa_redband,
-                                             rprj, depthColName, out_folder)
+    print ("Now calling randomForestRegression function.")
+    rf = randomForestRegression_S2(toa_coastalband, toa_blueband, toa_greenband, toa_redband,
+                                   rprj, depthColName, out_folder)
     print ("Multiple linear regression completed. Now reading image to extract data.")
     #  Get the blue green kernels std and mean
     # multiband_kernel = multiband_kernel_landsat(multiband_log, kernel)
 
-    #  Extract the depths and shape values from the toa bands
-    #  Open the multiple linear regression
-    multiband = read_raster_S2(multiband_MLR)
+    #  Extract the depths and shape values from the blue and green toa bands
+    #  Open the blue green logarithmic division
+    rf_dataset = read_raster_S2(rf)
 
     #  Open the reprojected shapefile
     rprjshp = read_shp(rprj['shpfilename'])
     #  extract the values into a list
-    multiband_values = extract_raster_shp_S2(rprjshp, multiband, depthColName)  # Blue/ Green List
+    rf_values = extract_raster_shp_S2(rprjshp, rf_dataset, depthColName)  # Blue/ Green List
     #  Create the regression array
-    regr_ar = regression_array(multiband_values)
+    regr_ar = regression_array(rf_values)
     plotlist = []
     # plot the data
     data_plot = plot(regr_ar, plotlist, 'Data', out_folder)
     #  Dictionary
-    multibandDict = {"coastal_toa": toa_coastalband, "blue_toa": toa_blueband, "green_toa": toa_greenband,
-                     "red_toa": toa_redband, "multiband_MLR": multiband_MLR,
-                     "rprj_shapefile": rprj['shpfilename'], "multiband_values": multiband_values,
-                     "regression_array": regr_ar, "plot_data": data_plot}
-    multiband = None
-    return multibandDict
+    randomForestDict_S2 = {"coastal_toa": toa_coastalband, "blue_toa": toa_blueband, "green_toa": toa_greenband,
+                           "red_toa": toa_redband, "random_forest": rf,
+                           "rprj_shapefile": rprj['shpfilename'], "rf_values": rf_values,
+                           "regression_array": regr_ar, "plot_data": data_plot}
+    rf_dataset = None
+    return randomForestDict_S2
 
-def multiband_WV2(mtl_filename, shp_filename, depthColName, out_folder):
+def randomForest_WV2(mtl_filename, shp_filename, depthColName, out_folder):
     # Get metadata
-    print ("multiband_WV2 has been called.")
+    print ("randomForest_WV2 has been called.")
 
     # Get metadata
     metadata = read_mtl_WV2(mtl_filename)
@@ -1737,33 +1576,34 @@ def multiband_WV2(mtl_filename, shp_filename, depthColName, out_folder):
     print ("User shapefile has been reprojected.")
 
     #  Extract the depth values from the shapefile
-    print ("Now calling multiband_MLR function.")
-    multiband_MLR = multipleLinearRegression_WV2(toa_coastalband, toa_blueband, toa_greenband, toa_yellowband,
-                                                 toa_redband, rprj, depthColName, out_folder)
-    print ("Multiple linear regression completed. Now reading image to extract data.")
+    print ("Now calling randomForestRegression_WV2 function.")
+    rf = randomForestRegression_WV2(toa_coastalband, toa_blueband, toa_greenband, toa_yellowband,
+                                    toa_redband, rprj, depthColName, out_folder)
+    print ("Random Forest regression completed. Now reading image to extract data.")
     #  Get the blue green kernels std and mean
     # multiband_kernel = multiband_kernel_landsat(multiband_log, kernel)
 
-    #  Extract the depths and shape values from the toa bands
-    #  Open the multiple linear regression
-    multiband = read_raster_WV2(multiband_MLR)
+    #  Extract the depths and shape values from the blue and green toa bands
+    #  Open the blue green logarithmic division
+    rf_dataset = read_raster_WV2(rf)
 
     #  Open the reprojected shapefile
     rprjshp = read_shp(rprj['shpfilename'])
     #  extract the values into a list
-    multiband_values = extract_raster_shp_WV2(rprjshp, multiband, depthColName)  # MLR depths list
+    rf_values = extract_raster_shp_WV2(rprjshp, rf_dataset, depthColName)  # Blue/ Green List
     #  Create the regression array
-    regr_ar = regression_array(multiband_values)
+    regr_ar = regression_array(rf_values)
     plotlist = []
     # plot the data
     data_plot = plot(regr_ar, plotlist, 'Data', out_folder)
     #  Dictionary
-    multibandDict = {"coastal_toa": toa_coastalband, "blue_toa": toa_blueband, "green_toa": toa_greenband,
-                     "yellow_toa": toa_yellowband, "red_toa": toa_redband, "multiband_MLR": multiband_MLR,
-                     "rprj_shapefile": rprj['shpfilename'], "multiband_values": multiband_values,
-                     "regression_array": regr_ar, "plot_data": data_plot}
-    multiband = None
-    return multibandDict
+    randomForestDict_WV2 = {"coastal_toa": toa_coastalband, "blue_toa": toa_blueband, "green_toa": toa_greenband,
+                            "yellow_toa": toa_yellowband, "red_toa": toa_redband, "random_forest": rf,
+                            "rprj_shapefile": rprj['shpfilename'], "rf_values": rf_values,
+                            "regression_array": regr_ar, "plot_data": data_plot}
+
+    rf_dataset = None
+    return randomForestDict_WV2
 
 def extract_array_landsat(reg_ar_L8, startvalue, endvalue):
     narray = []
@@ -1803,7 +1643,7 @@ def extract_array_WV2(reg_ar_WV2, startvalue, endvalue):
 
 ##### Statistics #####
 '''Part 3 performs statistical analysis with data derived above a certain threshold and returns 2 new plots.'''
-#Depth vs MLR and acoustic depth vs derived depth plots
+#Depth vs ln ratio and acoustic depth vs derived depth plots
 
 def train_test(regressionarray, trainsize):
     '''Creates the split for the test and train datasets'''
@@ -1811,9 +1651,9 @@ def train_test(regressionarray, trainsize):
     X = regressionarray[:, np.newaxis, 1]
     #  Define the targets
     Y = regressionarray[:, np.newaxis, 0]
-    X_train, X_test, y_train, y_test = train_test_split(X, Y, train_size=trainsize, random_state=42)
+    x_train, x_test, y_train, y_test = train_test_split(X, Y, train_size=trainsize, random_state=42)
 
-    traintest_dict = {"Xtrain": X_train, "Xtest": X_test, "ytrain": y_train, "ytest": y_test, "X": X, "y": y}
+    traintest_dict = {"xtrain": x_train, "xtest": x_test, "ytrain": y_train, "ytest": y_test, "x": X, "y": Y}
     return traintest_dict
 
 def debug_data(traintest_dict, regression_list, trainsize, output_folder):
@@ -1832,7 +1672,7 @@ def debug_data(traintest_dict, regression_list, trainsize, output_folder):
         train_test_sets = train_test(split_array, trainsize)
         ols = OLS_regression(train_test_sets)
         cmap = get_cmap(len(range_list))
-        predict_for_plot = plt.plot(train_test_sets['Xtrain'], ols['predict'], color=cmap(i+1), linewidth=1)
+        predict_for_plot = plt.plot(train_test_sets['xtrain'], ols['predict'], color=cmap(i+1), linewidth=1)
         slope = ols['coefficient'][0, 0]
         intercept = ols['intercept'][0]
         mse = ols['MSE']
@@ -1859,15 +1699,15 @@ def OLS_regression(traintest_dict):
     ols_regression = linear_model.LinearRegression()
 
     #  Build Linear Regression using Train_test datasets
-    ols_regression.fit(traintest_dict['Xtrain'], traintest_dict['ytrain'])
+    ols_regression.fit(traintest_dict['xtrain'], traintest_dict['ytrain'])
 
     # Calculate the Mean Square Error
-    MSE = np.mean((ols_regression.predict(traintest_dict['Xtest']) - traintest_dict['ytest']) ** 2)
+    MSE = np.mean((ols_regression.predict(traintest_dict['xtest']) - traintest_dict['ytest']) ** 2)
     #  Calculate variance score
-    var_score = ols_regression.score(traintest_dict['Xtest'], traintest_dict['ytest'])
+    var_score = ols_regression.score(traintest_dict['xtest'], traintest_dict['ytest'])
     #  Attributes: coef_, residues_, intercept_
     olsregression_dict = {"OLS": ols_regression, "coefficient": ols_regression.coef_,
-                          "predict": ols_regression.predict(traintest_dict['Xtrain']),
+                          "predict": ols_regression.predict(traintest_dict['xtrain']),
                           "intercept": ols_regression.intercept_, "residues": ols_regression.residues_, "MSE": MSE,
                           "varscore": var_score, "rtype": "OLS"}
 
@@ -1878,14 +1718,14 @@ def theil_sen_regression(traintest_dict):
     #  Create the linear regression object
     theilsen_regression = linear_model.TheilSenRegressor()
     #  Build Linear Regression using Train_test datasets
-    theilsen_regression.fit(traintest_dict['Xtrain'], traintest_dict['ytrain'])
+    theilsen_regression.fit(traintest_dict['xtrain'], traintest_dict['ytrain'])
     # Calculate the Mean Square Error
-    MSE = np.mean((theilsen_regression.predict(traintest_dict['Xtest']) - traintest_dict['ytest']) ** 2)
-    var_score = theilsen_regression.score(traintest_dict['Xtest'], traintest_dict['ytest'])
+    MSE = np.mean((theilsen_regression.predict(traintest_dict['xtest']) - traintest_dict['ytest']) ** 2)
+    var_score = theilsen_regression.score(traintest_dict['xtest'], traintest_dict['ytest'])
     #  Attributes: coef_, intercept_, breakdown_, n_iter_, n_subpopulation_
     theilsen_dict = {"TheilSen": theilsen_regression, "coefficient": theilsen_regression.coef_,
                      "intercept": theilsen_regression.intercept_,
-                     "predict": theilsen_regression.predict(traintest_dict['Xtrain']), "MSE": MSE, "varscore": var_score,
+                     "predict": theilsen_regression.predict(traintest_dict['xtrain']), "MSE": MSE, "varscore": var_score,
                      "rtype": "Theil_Sen"}
     return theilsen_dict
 
@@ -1893,27 +1733,27 @@ def ransac_regression(traintest_dict):
     '''Applies the RANSAC regression to the Train set.'''
     #  Robustly fit linear model with RANSAC algorithm
     RANSAC_regression = linear_model.RANSACRegressor(linear_model.LinearRegression())
-    RANSAC_regression.fit(traintest_dict['Xtrain'], traintest_dict['ytrain'])
+    RANSAC_regression.fit(traintest_dict['xtrain'], traintest_dict['ytrain'])
     inlier_mask = RANSAC_regression.inlier_mask_
     outlier_mask = np.logical_not(inlier_mask)
     coefficient = RANSAC_regression.estimator_.coef_
     intercept = RANSAC_regression.estimator_.intercept_
-    MSE = np.mean((RANSAC_regression.predict(traintest_dict['Xtest']) - traintest_dict['ytest']) ** 2)
-    var_score = RANSAC_regression.score(traintest_dict['Xtest'], traintest_dict['ytest'])
+    MSE = np.mean((RANSAC_regression.predict(traintest_dict['xtest']) - traintest_dict['ytest']) ** 2)
+    var_score = RANSAC_regression.score(traintest_dict['xtest'], traintest_dict['ytest'])
     #  Attributes: estimator_, n_trials, inlier_mask_
     RANSAC_dict = {"RANSAC": RANSAC_regression, "coefficient": coefficient, "inliers": inlier_mask,
                    "outliers": outlier_mask, "intercept": intercept, "MSE": MSE, "varscore": var_score,
-                   "predict": RANSAC_regression.predict(traintest_dict['Xtrain']), "rtype": "RANSAC"}
+                   "predict": RANSAC_regression.predict(traintest_dict['xtrain']), "rtype": "RANSAC"}
     return RANSAC_dict
 
 def plot_ols(regression_dict, traintest_dict, outputfolder):
     '''Plots the regression line and the dataset'''
-    plt.scatter(traintest_dict['Xtrain'], traintest_dict['ytrain'], c='navy', marker='.', label='Data')
-    plt.plot(traintest_dict['Xtrain'], regression_dict['predict'], color='yellowgreen', label='OLS Regressor',
+    plt.scatter(traintest_dict['xtrain'], traintest_dict['ytrain'], c='navy', marker='.', label='Data')
+    plt.plot(traintest_dict['xtrain'], regression_dict['predict'], color='yellowgreen', label='OLS Regressor',
              linewidth=2)
     plt.legend(loc='best')
     plt.title("Ordinary Least Squares Regression")
-    plt.xlabel('Multiband Values')
+    plt.xlabel('Random Forest Values')
     plt.ylabel('Depth (m)')
     plt.savefig(outputfolder + "\OLS_plot.png")
     plt.close()
@@ -1923,11 +1763,11 @@ def plot_ols(regression_dict, traintest_dict, outputfolder):
 
 def plot_theilsen(regression_dict, traintest_dict, outputfolder):
     '''Plots the regression line and the dataset'''
-    plt.scatter(traintest_dict['Xtrain'], traintest_dict['ytrain'], c='navy', marker='.', label='Data')
-    plt.plot(traintest_dict['Xtrain'], regression_dict['predict'], color='turquoise', label='Theil - Sen Regressor',
+    plt.scatter(traintest_dict['xtrain'], traintest_dict['ytrain'], c='navy', marker='.', label='Data')
+    plt.plot(traintest_dict['xtrain'], regression_dict['predict'], color='turquoise', label='Theil - Sen Regressor',
              linewidth=2)
     plt.legend(loc='best')
-    plt.xlabel('Multiband Values')
+    plt.xlabel('Random Forest Values')
     plt.ylabel('Depth (m)')
     plt.title("Theil Sen Regression")
     plt.savefig(outputfolder + "\Theil_Sen_plot.png")
@@ -1938,13 +1778,13 @@ def plot_theilsen(regression_dict, traintest_dict, outputfolder):
 
 def plot_RANSAC(regression_dict, traintest_dict, outputfolder):
     '''Plots the regression line and the dataset'''
-    plt.scatter(traintest_dict['Xtrain'][regression_dict['inliers']],
+    plt.scatter(traintest_dict['xtrain'][regression_dict['inliers']],
                 traintest_dict['ytrain'][regression_dict['inliers']], c='yellowgreen', marker='o', label='Inliers')
-    plt.scatter(traintest_dict['Xtrain'][regression_dict['outliers']],
+    plt.scatter(traintest_dict['xtrain'][regression_dict['outliers']],
                 traintest_dict['ytrain'][regression_dict['outliers']], c='gold', marker='x', label='Outliers')
-    plt.plot(traintest_dict['Xtrain'], regression_dict['predict'], c='cornflowerblue', linestyle='-', linewidth=2, label='RANSAC Regressor')
+    plt.plot(traintest_dict['xtrain'], regression_dict['predict'], c='cornflowerblue', linestyle='-', linewidth=2, label='RANSAC Regressor')
     plt.legend(loc='best')
-    plt.xlabel('Multiband Values')
+    plt.xlabel('Random Forest Values')
     plt.ylabel('Depth (m)')
     plt.title("RANSAC Regression")
     plt.savefig(outputfolder + "\RANSAC_plot.png")
@@ -1953,10 +1793,9 @@ def plot_RANSAC(regression_dict, traintest_dict, outputfolder):
     ransac_dict = {"plotname": plotname}
     return ransac_dict
 
-def depth_array(coefficient, intercept, multiband_dict, outputfolder, regression_type):
+def depth_array(coefficient, intercept, randomforest_dict, outputfolder, regression_type):
     '''Applies the depth algorithm to the blue green log array and creates a new raster file.'''
-    #depth = (coefficient * (multiband_dict["multiband_MLR"])) + intercept
-    depth = (coefficient * multiband_dict['multiband_log']) + intercept
+    depth = (coefficient * (randomforest_dict['random_forest'])) + intercept
     depth[depth < 0.0] = np.nan
     # Write array
     depth_raster_filename = outputfolder + "/" + "Depth" + "_" + regression_type + ".tif"
@@ -1964,8 +1803,8 @@ def depth_array(coefficient, intercept, multiband_dict, outputfolder, regression
     raster_driver = gdal.GetDriverByName("GTiff")
     rows, cols = depth.shape
     depth_raster_dataset = raster_driver.Create(depth_raster_filename, cols, rows, 1, gdal.GDT_Float32)
-    depth_raster_dataset.SetGeoTransform(multiband_dict['geotransform'])
-    depth_raster_dataset.SetProjection(multiband_dict['projection'])
+    depth_raster_dataset.SetGeoTransform(randomforest_dict['geotransform'])
+    depth_raster_dataset.SetProjection(randomforest_dict['projection'])
     band = depth_raster_dataset.GetRasterBand(1)
     band.WriteArray(depth)
     depth_dict = {"depthfilename": depth_raster_filename, "depthbandname": depth_bandname,
@@ -2045,7 +1884,7 @@ def extract_all_depths(rprj_shp_filename, depth_dict, fieldname, out_folder):
     return extract_all_depths_dict
 
 def depthPlot(scatter_ar, plot_title, threshold, outfolder):
-    #Takes the actual and derived depths array and plots them
+    #Takes the acoustic and derived depths array and plots them
     plt.scatter(scatter_ar[:, 1], scatter_ar[:, 0], c='navy', marker='.', label='Data')
     #plt.plot(range(threshold))
     ymax = int(threshold)
@@ -2073,12 +1912,17 @@ def all_depths_plot(depth_regr_ar, depthColName, reprj, threshold, out_folder):
     return all_depths_dict
 
 def create_all_depths_array(all_depths_dict):
-    #Creates an array of the actual and derived depths
+    #Creates an array of the acoustic and derived depths
     ad_depth_ar = np.zeros((len(all_depths_dict['deriveddepths']),2))
     ad_depth_ar[:, 0] = all_depths_dict['actualdepths']
     ad_depth_ar[:, 1] = all_depths_dict['deriveddepths']
     print ("Save complete.")
     return ad_depth_ar
+
+
+
+
+
 
 
 
